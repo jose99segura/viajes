@@ -1,0 +1,55 @@
+# Flight tracker configuration
+
+routes:
+  - origin: HHN   # Frankfurt-Hahn (Ryanair)
+    destination: ALC
+  - origin: LUX   # Luxembourg
+    destination: ALC
+  - origin: SCN   # Saarbruecken (few routes; may return nothing)
+    destination: ALC
+  # Track the way back too
+  - origin: ALC
+    destination: HHN
+  - origin: ALC
+    destination: LUX
+
+# How far ahead to look (months from today)
+months_ahead: 4
+
+currency: EUR
+
+# Google Flights sampling. It queries one date at a time (slow), so we only
+# sample the weekdays that matter. Routes Ryanair doesn't fly (LUX in
+# particular, where Luxair is the operator) depend entirely on this.
+google:
+  weeks: 10
+  # 0=Mon ... 6=Sun. Thu included: Thu-night departures are worth seeing.
+  weekdays: [3, 4, 5, 6]
+
+# Luxair (luxair.lu) quotes LUX<->ALC as a round-trip price per departure date
+# and trip length. It is the only source for non-stop LUX-ALC.
+luxair:
+  routes:
+    - [LUX, ALC]
+  # Trip lengths to query, in nights. Must be values the route actually sells
+  # (see `python -m flighttracker luxair-durations`).
+  nights: [3, 4, 5, 7, 10, 14]
+
+# Convenience scoring: we convert "inconvenience" into euros and add it to the
+# ticket price to get an *effective cost*. Lower effective cost = better deal
+# for your life, not just your wallet.
+scoring:
+  # Cost (EUR) of taking time off work: applies to departures on Mon-Fri
+  # between work_start and work_end.
+  work_hours_penalty: 60
+  work_start: "09:00"
+  work_end: "17:30"
+  # Departing Mon-Thu at all is slightly worse than Fri/weekend even outside
+  # work hours (you still work the next day, short escapes are harder).
+  weekday_penalty: 20
+  # Bonus (negative cost) for the sweet spots:
+  friday_evening_bonus: 25   # Friday departing after work_end
+  weekend_bonus: 15          # Saturday or Sunday departure
+  # Very early red-eyes are painful even on weekends
+  before_hour: "06:30"
+  early_penalty: 15

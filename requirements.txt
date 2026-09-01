@@ -1,0 +1,11 @@
+requests>=2.31
+PyYAML>=6.0
+tabulate>=0.9
+flask>=3.0
+# The chat assistant uses Gemini over its REST API (only `requests` needed —
+# the google-genai SDK requires `cryptography`, which has no Windows ARM64
+# wheel). Install `anthropic` only if you want to use Claude instead.
+# anthropic>=1.0
+# Google Flights provider. The Ryanair provider works without it, so the app
+# degrades gracefully if this fails to install.
+fast-flights>=3.1
