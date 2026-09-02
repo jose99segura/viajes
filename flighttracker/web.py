@@ -6,7 +6,7 @@ from pathlib import Path
 
 import json
 
-from flask import Flask, Response, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, redirect, request, send_from_directory
 
 from . import alerts as alerts_mod
 from . import chat as chat_mod
@@ -37,6 +37,13 @@ def _page(name: str) -> Response:
 @app.get("/")
 def index():
     return _page("index.html")
+
+
+@app.get("/favicon.ico")
+def favicon_ico():
+    # Browsers request this unconditionally regardless of the <link rel=icon>
+    # in the page head; redirect to the real (SVG) favicon so it doesn't 404.
+    return redirect("/static/favicon.svg")
 
 
 @app.get("/info")

@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cómo funciona · viajes</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1a19" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/static/app.css">
 <script>
   try {
@@ -19,7 +21,10 @@
 <div class="shell">
   <nav class="sidebar" id="sidebar">
     <div class="brand">
-      <span class="mark">✈</span>
+      <span class="mark"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+          <path d="M22 2L15 22L11 13L2 9L22 2Z" fill="currentColor"/>
+          <path d="M22 2L11 13" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg></span>
       <b>viajes</b>
     </div>
 
