@@ -682,3 +682,30 @@ th.starcol, td.starcol { width: 34px; padding-left: 10px; padding-right: 0; }
 }
 .alert-form button.save { border-color: var(--accent); color: var(--accent); }
 .alert-form button:hover { background: var(--hover); }
+
+/* ---------- alert match views: grouped list / mini calendar ---------- */
+.view-toggle {
+  display: flex; background: var(--neutral-bg); border-radius: 8px; padding: 2px; gap: 1px;
+}
+.view-toggle button {
+  border: none; background: none; padding: 4px 10px; border-radius: 6px;
+  font-size: 11.5px; color: var(--ink-2); cursor: pointer;
+}
+.view-toggle button.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.view-toggle button:hover:not(.active) { color: var(--ink); }
+
+.alert-month {
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 8px 16px 5px; font-size: 11px; font-weight: 650;
+  text-transform: capitalize; color: var(--ink-2);
+  background: var(--surface-2); letter-spacing: 0.02em;
+}
+.alert-month .n { color: var(--muted); font-weight: 500; text-transform: none; }
+
+.alert-cal {
+  padding: 14px 16px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px;
+}
+.alert-cal .month { padding: 12px 13px; }
+.alert-cal .month h3 { font-size: 12px; margin-bottom: 8px; }
+.alert-cal .day .p { font-size: 9px; }

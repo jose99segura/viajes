@@ -9,7 +9,7 @@ const state = {
   chat: [], chatBusy: false,
   favs: [], favKeys: new Set(),
   calMonth: null, calOut: {}, calIn: {}, calDir: "outbound", calSel: null,
-  alerts: [], alertEditing: null, userPicked: false,
+  alerts: [], alertEditing: null, userPicked: false, alertView: {},
 };
 // $ and the theme/sidebar shell live in shell.js (loaded first).
 const fmtEUR = v => v.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
@@ -235,11 +235,11 @@ function renderCalendar() {
   host.innerHTML = "";
   for (let i = 0; i < 2; i++) {
     const base = new Date(state.calMonth.getFullYear(), state.calMonth.getMonth() + i, 1);
-    host.appendChild(monthGrid(base, days, colorFor));
+    host.appendChild(monthGrid(base, days, colorFor, selectCalDay));
   }
 }
 
-function monthGrid(base, days, colorFor) {
+function monthGrid(base, days, colorFor, onClick) {
   const el = document.createElement("div");
   el.className = "month";
   const label = base.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
@@ -268,7 +268,7 @@ function monthGrid(base, days, colorFor) {
     <div class="dow"><div>lu</div><div>ma</div><div>mi</div><div>ju</div><div>vi</div><div>sá</div><div>do</div></div>
     <div class="days">${cells}</div>`;
   el.querySelectorAll(".day.has").forEach(d => {
-    d.addEventListener("click", () => selectCalDay(d.dataset.day));
+    d.addEventListener("click", () => onClick(d.dataset.day));
   });
   return el;
 }
@@ -1050,6 +1050,95 @@ function alertRow(m) {
   return el;
 }
 
+// Chronological month buckets, most recent first-seen date within each month
+// kept in date order (the backend already sorts matches by price, which is
+// not the order you want once you're scanning a whole month at a glance).
+function groupMatchesByMonth(matches) {
+  const groups = new Map();
+  for (const m of matches) {
+    const d = new Date(m.out.departure);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(m);
+  }
+  const ordered = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  for (const [, list] of ordered) {
+    list.sort((a, b) => new Date(a.out.departure) - new Date(b.out.departure));
+  }
+  return ordered;
+}
+
+function renderAlertList(rows, matches) {
+  for (const [key, list] of groupMatchesByMonth(matches)) {
+    const [y, mo] = key.split("-").map(Number);
+    const label = new Date(y, mo - 1, 1).toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+    const head = document.createElement("div");
+    head.className = "alert-month";
+    head.innerHTML = `${label} <span class="n">· ${list.length}</span>`;
+    rows.appendChild(head);
+    for (const m of list) rows.appendChild(alertRow(m));
+  }
+}
+
+// Sequential ramp reused from the main calendar, cheap = strong colour.
+function renderAlertCalendar(rows, alert, matches) {
+  const byDay = {};       // ISO day -> cheapest price seen that day
+  const newByDay = {};    // ISO day -> any match that day is new
+  for (const m of matches) {
+    const day = m.out.departure.slice(0, 10);
+    if (!(day in byDay) || m.price < byDay[day]) byDay[day] = m.price;
+    if (m.is_new) newByDay[day] = true;
+  }
+  const days = Object.keys(byDay).sort();
+  if (!days.length) {
+    rows.innerHTML = `<div class="alert-empty">Nada por ahora.</div>`;
+    return;
+  }
+  const prices = Object.values(byDay);
+  const lo = Math.min(...prices), hi = Math.max(...prices);
+  const colorFor = p => {
+    if (hi === lo) return CAL_RAMP[0];
+    const t = (Math.log(p) - Math.log(lo)) / (Math.log(hi) - Math.log(lo));
+    return CAL_RAMP[Math.min(CAL_RAMP.length - 1, Math.floor(t * CAL_RAMP.length))];
+  };
+
+  const host = document.createElement("div");
+  host.className = "alert-cal";
+  const first = new Date(days[0] + "T00:00:00");
+  const last = new Date(days[days.length - 1] + "T00:00:00");
+  let cursor = new Date(first.getFullYear(), first.getMonth(), 1);
+  const stop = new Date(last.getFullYear(), last.getMonth(), 1);
+  while (cursor <= stop) {
+    const grid = monthGrid(cursor, byDay, colorFor, iso => selectAlertCalDay(alert, iso));
+    if (newByDay) {
+      grid.querySelectorAll(".day.has").forEach(d => {
+        if (newByDay[d.dataset.day]) d.style.outline = "2px solid var(--accent)";
+      });
+    }
+    host.appendChild(grid);
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+  rows.appendChild(host);
+}
+
+async function selectAlertCalDay(a, iso) {
+  // Jump into the main trips view, pre-filtered to this alert's rules and
+  // narrowed to the day you clicked — the alert card only shows the best few
+  // matches, this shows every trip that day.
+  $("fAirport").value = a.airport || "";
+  $("fMinN").value = a.min_nights;
+  $("fMaxN").value = a.max_nights;
+  $("fDaysOff").value = a.max_days_off ?? "";
+  $("fMax").value = a.max_price ?? "";
+  $("fWhen").value = "";
+  $("fDirect").checked = !!a.direct_only;
+  state.userPicked = true;
+  await setMode("trips");
+  state.trips = state.trips.filter(t => t.out.departure.startsWith(iso));
+  $("rowCount").textContent = `${state.trips.length} viajes saliendo el ${iso}`;
+  render();
+}
+
 function renderAlerts() {
   const host = $("alertList");
   host.innerHTML = "";
@@ -1071,25 +1160,34 @@ function renderAlerts() {
         <div class="grow"></div>
         ${nNew ? `<span class="pill new">${nNew} nueva${nNew === 1 ? "" : "s"}</span>` : ""}
         <span class="pill ${entry.total ? "hit" : ""}">${entry.total} coincidencia${entry.total === 1 ? "" : "s"}</span>
+        <div class="view-toggle" data-role="viewtoggle">
+          <button data-view="list">☰ Lista</button>
+          <button data-view="calendar">▦ Calendario</button>
+        </div>
         <button data-act="toggle" title="${a.enabled ? "Desactivar" : "Activar"}">${a.enabled ? "◉" : "○"}</button>
         <button data-act="edit" title="Editar">✎</button>
         <button data-act="del" title="Borrar">✕</button>
       </div>
       <div class="alert-rows"></div>`;
 
+    const view = state.alertView[a.id] || "list";
+    el.querySelectorAll('[data-role="viewtoggle"] button').forEach(b => {
+      b.classList.toggle("active", b.dataset.view === view);
+      b.addEventListener("click", () => {
+        state.alertView[a.id] = b.dataset.view;
+        renderAlerts();
+      });
+    });
+
     const rows = el.querySelector(".alert-rows");
     if (!a.enabled) {
       rows.innerHTML = `<div class="alert-empty">Desactivada.</div>`;
     } else if (!entry.matches.length) {
       rows.innerHTML = `<div class="alert-empty">Nada por ahora. Se revisa en cada <code>fetch</code>.</div>`;
+    } else if (view === "calendar") {
+      renderAlertCalendar(rows, a, entry.matches);
     } else {
-      for (const m of entry.matches.slice(0, 8)) rows.appendChild(alertRow(m));
-      if (entry.total > 8) {
-        const more = document.createElement("div");
-        more.className = "alert-empty";
-        more.textContent = `y ${entry.total - 8} más`;
-        rows.appendChild(more);
-      }
+      renderAlertList(rows, entry.matches);
     }
 
     el.querySelector('[data-act="toggle"]').addEventListener("click", async () => {
