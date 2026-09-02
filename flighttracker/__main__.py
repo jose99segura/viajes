@@ -8,6 +8,7 @@ from tabulate import tabulate
 
 from . import db
 from .config import load_config
+from . import alerts as alerts_mod
 from .providers import google, luxair, ryanair
 from .scoring import convenience_adjustment
 
@@ -63,6 +64,37 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                         direct += sum(1 for f in fares if f.get("stops") == 0)
                 print(f"  {origin}->{dest} google: {found} fares ({direct} non-stop)")
     print(f"Stored {total} fares.")
+    _print_alerts(alerts_mod.evaluate(cfg, conn, record=True), only_new=True)
+
+
+def _fmt_trip(c: dict) -> str:
+    def when(leg):
+        d = leg["departure"]
+        return d[:10] if leg.get("date_only") else d[:16].replace("T", " ")
+    return (f"{c['out']['origin']}->ALC {when(c['out'])}  ->  "
+            f"ALC->{c['ret']['destination']} {when(c['ret'])}  "
+            f"{c['nights']}n  {c['days_off']} dias libres  "
+            f"{c['price']:.2f} EUR  ({c['out']['airline']})")
+
+
+def _print_alerts(results: list[dict], only_new: bool) -> None:
+    print()
+    for r in results:
+        a = r["alert"]
+        if not a["enabled"]:
+            continue
+        shown = [m for m in r["matches"] if m["is_new"]] if only_new else r["matches"]
+        head = f"[{a['name']}] {r['total']} coincidencias"
+        if only_new:
+            head += f", {len(shown)} nuevas"
+        print(head)
+        for m in shown[:10]:
+            print(f"   {'NEW ' if m['is_new'] else '    '}{_fmt_trip(m)}")
+
+
+def cmd_alerts(args: argparse.Namespace) -> None:
+    cfg = load_config()
+    _print_alerts(alerts_mod.evaluate(cfg, record=False), only_new=False)
 
 
 def _sample_days(weeks: int, weekdays: list[int]) -> list:
@@ -178,6 +210,9 @@ def main() -> None:
     p_hist.add_argument("route", help="e.g. HHN-ALC")
     p_hist.add_argument("date", help="YYYY-MM-DD")
     p_hist.set_defaults(func=cmd_history)
+
+    p_alerts = sub.add_parser("alerts", help="show current matches for every alert rule")
+    p_alerts.set_defaults(func=cmd_alerts)
 
     p_models = sub.add_parser("models", help="list Gemini models your key can use")
     p_models.set_defaults(func=cmd_models)

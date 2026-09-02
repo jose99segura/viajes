@@ -43,6 +43,33 @@ CREATE TABLE IF NOT EXISTS package_fares (
 CREATE INDEX IF NOT EXISTS idx_pkg_route_date
     ON package_fares (origin, destination, out_date);
 
+-- Alert rules: "tell me when a trip like this exists". Each is a saved
+-- TripFilter plus a name; NULL means "no limit" for that field.
+CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    name TEXT NOT NULL,
+    airport TEXT,
+    max_price REAL,
+    max_days_off INTEGER,
+    min_nights INTEGER NOT NULL DEFAULT 1,
+    max_nights INTEGER NOT NULL DEFAULT 14,
+    direct_only INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1
+);
+
+-- Which trips have matched which alert, so a fetch can say what is NEW and
+-- the UI can show an unread count. Cleared for trips that stop matching.
+CREATE TABLE IF NOT EXISTS alert_hits (
+    alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
+    trip_key TEXT NOT NULL,
+    price REAL NOT NULL,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    seen INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (alert_id, trip_key)
+);
+
 -- Saved trips/flights. `kind` is 'trip' (round trip) or 'flight' (one way).
 -- The return columns are NULL for a one-way favourite.
 CREATE TABLE IF NOT EXISTS favorites (
@@ -312,3 +339,95 @@ def price_history(
         """,
         (origin.upper(), destination.upper(), f"{day}%"),
     ).fetchall()
+
+
+# ---------- alerts ----------
+
+ALERT_FIELDS = ("name", "airport", "max_price", "max_days_off",
+                "min_nights", "max_nights", "direct_only", "enabled")
+
+
+def list_alerts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM alerts ORDER BY id").fetchall()
+
+
+def get_alert(conn: sqlite3.Connection, alert_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM alerts WHERE id = ?", (alert_id,)).fetchone()
+
+
+def save_alert(conn: sqlite3.Connection, data: dict, alert_id: int | None = None) -> int:
+    vals = {
+        "name": (data.get("name") or "Alerta").strip(),
+        "airport": (data.get("airport") or "").upper() or None,
+        "max_price": float(data["max_price"]) if data.get("max_price") not in (None, "") else None,
+        "max_days_off": int(data["max_days_off"]) if data.get("max_days_off") not in (None, "") else None,
+        "min_nights": int(data.get("min_nights") or 1),
+        "max_nights": int(data.get("max_nights") or 14),
+        "direct_only": 1 if data.get("direct_only") else 0,
+        "enabled": 0 if data.get("enabled") is False else 1,
+    }
+    if alert_id is None:
+        cur = conn.execute(
+            f"INSERT INTO alerts (created_at, {', '.join(vals)}) "
+            f"VALUES (?, {', '.join('?' for _ in vals)})",
+            (run_timestamp(), *vals.values()),
+        )
+        alert_id = cur.lastrowid
+    else:
+        conn.execute(
+            f"UPDATE alerts SET {', '.join(f'{k} = ?' for k in vals)} WHERE id = ?",
+            (*vals.values(), alert_id),
+        )
+    conn.commit()
+    return alert_id
+
+
+def delete_alert(conn: sqlite3.Connection, alert_id: int) -> None:
+    conn.execute("DELETE FROM alert_hits WHERE alert_id = ?", (alert_id,))
+    conn.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
+    conn.commit()
+
+
+def record_hits(conn: sqlite3.Connection, alert_id: int,
+                hits: dict[str, float]) -> tuple[set[str], int]:
+    """Upsert the current matches of one alert. Returns (new keys, unseen count).
+    Matches that disappeared are dropped so they can count as new if they return."""
+    now = run_timestamp()
+    existing = {
+        r["trip_key"]: r for r in conn.execute(
+            "SELECT trip_key, seen FROM alert_hits WHERE alert_id = ?", (alert_id,))
+    }
+    new_keys = set()
+    for key, price in hits.items():
+        if key in existing:
+            conn.execute(
+                "UPDATE alert_hits SET price = ?, last_seen = ? "
+                "WHERE alert_id = ? AND trip_key = ?", (price, now, alert_id, key))
+        else:
+            new_keys.add(key)
+            conn.execute(
+                "INSERT INTO alert_hits (alert_id, trip_key, price, first_seen, last_seen, seen) "
+                "VALUES (?,?,?,?,?,0)", (alert_id, key, price, now, now))
+    gone = set(existing) - set(hits)
+    if gone:
+        conn.executemany(
+            "DELETE FROM alert_hits WHERE alert_id = ? AND trip_key = ?",
+            [(alert_id, k) for k in gone])
+    conn.commit()
+    unseen = conn.execute(
+        "SELECT COUNT(*) FROM alert_hits WHERE alert_id = ? AND seen = 0", (alert_id,)
+    ).fetchone()[0]
+    return new_keys, unseen
+
+
+def unseen_keys(conn: sqlite3.Connection, alert_id: int) -> set[str]:
+    return {r["trip_key"] for r in conn.execute(
+        "SELECT trip_key FROM alert_hits WHERE alert_id = ? AND seen = 0", (alert_id,))}
+
+
+def mark_alert_seen(conn: sqlite3.Connection, alert_id: int | None = None) -> None:
+    if alert_id is None:
+        conn.execute("UPDATE alert_hits SET seen = 1")
+    else:
+        conn.execute("UPDATE alert_hits SET seen = 1 WHERE alert_id = ?", (alert_id,))
+    conn.commit()

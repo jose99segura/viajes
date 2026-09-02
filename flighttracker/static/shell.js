@@ -37,7 +37,13 @@ function setNavCollapsed(collapsed) {
 
 function initShell() {
   applyTheme(currentTheme());
-  setNavCollapsed(document.documentElement.classList.contains("pre-collapsed"));
+  // Saved preference wins; with none, start collapsed on a narrow window.
+  // Only JS decides this, so the toggle always works at any width.
+  let collapsed = document.documentElement.classList.contains("pre-collapsed");
+  try {
+    if (localStorage.getItem("nav") === null) collapsed = window.innerWidth < 1180;
+  } catch (e) {}
+  setNavCollapsed(collapsed);
   document.documentElement.classList.remove("pre-collapsed");
 
   $("navToggle").addEventListener("click", () =>

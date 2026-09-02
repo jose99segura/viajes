@@ -62,6 +62,7 @@ python -m flighttracker fetch --google        # + Google Flights (needed for LUX
 python -m flighttracker report                # best flights by effective cost
 python -m flighttracker report --route HHN-ALC --max-price 60
 python -m flighttracker history HHN-ALC 2026-10-25   # price evolution for a day
+python -m flighttracker alerts                # current matches per alert rule
 python -m flighttracker models                # Gemini models your key can use
 ```
 
@@ -83,6 +84,10 @@ tracker works — sources, the scoring model, the data model and the known limit
 - **Calendario** — two months at a time, each day coloured by its cheapest fare
   (log scale, since fares cluster low with a long expensive tail). Switch
   between outbound and return; click a day to jump to the trips leaving then.
+- **◔ Alertas** — saved rules ("weekend, non-stop, under 120 €, no days off").
+  Every `fetch` re-checks them and flags what is new; the sidebar shows an
+  unread count and the CLI prints the new matches. `python -m flighttracker
+  alerts` lists them without fetching.
 - **★ Favoritos** — save any trip or flight with the star. Each saved card
   shows today's price, the range seen so far, and how much it has moved since
   you saved it. Stored in SQLite, so they survive restarts.
@@ -94,6 +99,14 @@ tracker works — sources, the scoring model, the data model and the known limit
   replies in a fixed structure (verdict → options → why) and tags each option
   it recommends with a marker the UI turns into a card you can save straight
   into favourites.
+
+### Días libres
+
+The key filter. `scoring.work_days_used` counts the Mon-Fri days a trip would
+actually cost you: the departure day only if you leave before 17:30, every
+weekday in between, and the return day whenever it is a weekday. So a Friday
+22:00 → Sunday trip costs **zero** days off, while Friday 09:35 → Monday costs
+two. Filter by it in the trips view, or bake it into an alert.
 
 Round-trip filtering happens server-side (`/api/trips`): there are tens of
 thousands of pairings, and a global top-N would hide every LUX trip behind
@@ -130,8 +143,10 @@ flighttracker/
   static/shell.js      theme switching + collapsible sidebar (both pages)
   static/app.js        dashboard logic (filters, pagination, charts, chat)
   config.py            config.yaml loader
+  trips.py             round-trip pairing + scoring (shared by API/alerts/chat)
+  alerts.py            alert rules and new-match tracking
   db.py                SQLite schema, migrations and queries
-                       (fares, package_fares, favorites)
+                       (fares, package_fares, favorites, alerts, alert_hits)
   scoring.py           price -> effective cost adjustment
   providers/
     ryanair.py         Ryanair cheapest-per-day API

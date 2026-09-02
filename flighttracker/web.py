@@ -8,10 +8,12 @@ import json
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
+from . import alerts as alerts_mod
 from . import chat as chat_mod
 from . import db
 from .config import load_config
 from .scoring import convenience_adjustment, day_adjustment
+from .trips import TripFilter, build_trips
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -83,158 +85,32 @@ def flights():
 TRIP_CAP = 2000
 
 
-def _matches_when(label: str, when: str) -> bool:
-    if not when:
-        return True
-    if when == "weekend":
-        return "weekend" in label
-    if when == "fri":
-        return "fri evening" in label
-    if when == "convenient":
-        return "weekend" in label or "fri evening" in label
-    if when == "weekday":
-        return "weekday" in label or "work hours" in label
-    return True
-
-
-def _package_combos(min_nights, max_nights, airport, when, direct_only,
-                    max_price, cfg) -> list[dict]:
-    """Luxair round trips, shaped like the paired ones so the UI can mix them.
-
-    These are non-stop and quoted whole, but carry no departure times, so they
-    are scored on the day of week only (see scoring.day_adjustment)."""
-    conn = db.connect()
-    try:
-        rows = db.latest_packages(conn)
-    finally:
-        conn.close()
-
-    out = []
-    for r in rows:
-        if airport and r["origin"] != airport and r["destination"] != airport:
-            continue
-        if not (min_nights <= r["nights"] <= max_nights):
-            continue
-        if max_price is not None and r["price"] > max_price:
-            continue
-        try:
-            out_day = date.fromisoformat(r["out_date"])
-        except ValueError:
-            continue
-        ret_day = out_day + timedelta(days=r["nights"])
-        out_adj, out_label = day_adjustment(out_day, cfg.scoring)
-        ret_adj, ret_label = day_adjustment(ret_day, cfg.scoring)
-        if not _matches_when(out_label, when):
-            continue
-        airline = "Luxair"
-        out.append({
-            "out": {
-                "origin": r["origin"], "destination": r["destination"],
-                "departure": f"{out_day.isoformat()}T00:00:00",
-                "date_only": True, "airline": airline, "stops": 0,
-                "price": None, "adjustment": out_adj, "label": out_label,
-                "source": "luxair",
-            },
-            "ret": {
-                "origin": r["destination"], "destination": r["origin"],
-                "departure": f"{ret_day.isoformat()}T00:00:00",
-                "date_only": True, "airline": airline, "stops": 0,
-                "price": None, "adjustment": ret_adj, "label": ret_label,
-                "source": "luxair",
-            },
-            "nights": r["nights"],
-            "same_airport": True,
-            "package": True,
-            "price": r["price"],
-            "adjustment": out_adj + ret_adj,
-            "effective": round(r["price"] + out_adj + ret_adj, 2),
-        })
-    return out
+def _trip_filter_from_request() -> TripFilter:
+    a = request.args
+    max_price = a.get("max_price", "")
+    max_days = a.get("max_days_off", "")
+    return TripFilter(
+        min_nights=int(a.get("min_nights", 1)),
+        max_nights=int(a.get("max_nights", 21)),
+        airport=a.get("airport", "").upper(),
+        when=a.get("when", ""),
+        same_only=a.get("same_airport") == "1",
+        direct_only=a.get("direct") == "1",
+        max_price=float(max_price) if max_price else None,
+        max_days_off=int(max_days) if max_days != "" else None,
+    )
 
 
 @app.get("/api/trips")
 def trips():
-    """Pair outbound legs (X->ALC) with return legs (ALC->X) into scored round
-    trips. Filtering happens here, not client-side: there are tens of thousands
-    of pairings, so a global top-N would hide every LUX trip behind cheaper
-    Ryanair ones. We filter first, then return the best TRIP_CAP."""
-    min_nights = int(request.args.get("min_nights", 1))
-    max_nights = int(request.args.get("max_nights", 21))
-    airport = request.args.get("airport", "").upper()
-    when = request.args.get("when", "")
-    same_only = request.args.get("same_airport") == "1"
-    direct_only = request.args.get("direct") == "1"
-    max_price_raw = request.args.get("max_price", "")
-    max_price = float(max_price_raw) if max_price_raw else None
+    """Scored round trips. Filtering happens server-side, before the cap:
+    there are tens of thousands of pairings, so a global top-N would hide
+    every LUX trip behind cheaper Ryanair ones."""
     cfg = load_config()
-    conn = db.connect()
-    try:
-        rows = db.latest_snapshot(conn)
-    finally:
-        conn.close()
-
-    outbounds, returns, last_captured = [], [], None
-    for r in rows:
-        try:
-            dep = datetime.fromisoformat(r["departure"])
-        except ValueError:
-            continue
-        adj, label = convenience_adjustment(dep, cfg.scoring)
-        leg = {
-            "origin": r["origin"], "destination": r["destination"],
-            "departure": r["departure"], "airline": r["airline"],
-            "stops": r["stops"],
-            "price": r["price"], "adjustment": adj, "label": label,
-            "source": r["source"], "_dep": dep,
-        }
-        if last_captured is None or r["captured_at"] > last_captured:
-            last_captured = r["captured_at"]
-        if direct_only and r["stops"]:
-            continue
-        if r["destination"] == "ALC":
-            if airport and r["origin"] != airport:
-                continue
-            if not _matches_when(label, when):
-                continue
-            outbounds.append(leg)
-        elif r["origin"] == "ALC":
-            if airport and r["destination"] != airport:
-                continue
-            returns.append(leg)
-
-    combos = []
-    for out in outbounds:
-        for ret in returns:
-            nights = (ret["_dep"].date() - out["_dep"].date()).days
-            if nights < min_nights or nights > max_nights:
-                continue
-            if nights == 0 and ret["_dep"] <= out["_dep"]:
-                continue
-            if same_only and out["origin"] != ret["destination"]:
-                continue
-            if max_price is not None and out["price"] + ret["price"] > max_price:
-                continue
-            combos.append(
-                {
-                    "out": {k: v for k, v in out.items() if k != "_dep"},
-                    "ret": {k: v for k, v in ret.items() if k != "_dep"},
-                    "nights": nights,
-                    "same_airport": out["origin"] == ret["destination"],
-                    "price": round(out["price"] + ret["price"], 2),
-                    "adjustment": out["adjustment"] + ret["adjustment"],
-                    "effective": round(
-                        out["price"] + ret["price"]
-                        + out["adjustment"] + ret["adjustment"], 2
-                    ),
-                }
-            )
-    combos.extend(_package_combos(
-        min_nights, max_nights, airport, when, direct_only, max_price, cfg))
-    combos.sort(key=lambda c: c["effective"])
+    combos, last_captured = build_trips(cfg, _trip_filter_from_request())
     return jsonify({"trips": combos[:TRIP_CAP], "total": len(combos),
                     "capped": len(combos) > TRIP_CAP,
                     "last_captured": last_captured, "currency": cfg.currency})
-
 
 @app.get("/api/history")
 def history():
@@ -348,6 +224,47 @@ def favorites():
             fav["key"] = db.favorite_key(fav)
             out.append(fav)
         return jsonify({"favorites": out})
+    finally:
+        conn.close()
+
+
+@app.route("/api/alerts", methods=["GET", "POST"])
+def alerts_collection():
+    cfg = load_config()
+    conn = db.connect()
+    try:
+        if request.method == "POST":
+            data = request.get_json(silent=True) or {}
+            db.save_alert(conn, data)
+        results = alerts_mod.evaluate(cfg, conn, record=False)
+        return jsonify({"alerts": results,
+                        "unseen": sum(r["unseen"] for r in results)})
+    finally:
+        conn.close()
+
+
+@app.route("/api/alerts/<int:alert_id>", methods=["PUT", "DELETE"])
+def alerts_item(alert_id: int):
+    conn = db.connect()
+    try:
+        if db.get_alert(conn, alert_id) is None:
+            return jsonify({"error": "no existe"}), 404
+        if request.method == "DELETE":
+            db.delete_alert(conn, alert_id)
+        else:
+            db.save_alert(conn, request.get_json(silent=True) or {}, alert_id)
+        return jsonify({"ok": True})
+    finally:
+        conn.close()
+
+
+@app.post("/api/alerts/seen")
+def alerts_seen():
+    data = request.get_json(silent=True) or {}
+    conn = db.connect()
+    try:
+        db.mark_alert_seen(conn, data.get("alert_id"))
+        return jsonify({"ok": True})
     finally:
         conn.close()
 

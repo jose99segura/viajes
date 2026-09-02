@@ -79,6 +79,8 @@
           <li><a href="#arquitectura">Arquitectura general</a></li>
           <li><a href="#fuentes">Las tres fuentes de datos</a></li>
           <li><a href="#coste">El modelo de coste efectivo</a></li>
+          <li><a href="#diaslibres">Días libres, la métrica que importa</a></li>
+          <li><a href="#alertas">Alertas</a></li>
           <li><a href="#emparejado">Cómo se arman las idas y vueltas</a></li>
           <li><a href="#datos">Modelo de datos e histórico</a></li>
           <li><a href="#asistente">El asistente</a></li>
@@ -264,7 +266,49 @@
         </p>
       </div>
 
-      <h2 id="emparejado">4 · Cómo se arman las idas y vueltas</h2>
+      <h2 id="diaslibres">4 · Días libres, la métrica que importa</h2>
+      <p>
+        El precio no basta para decidir. Lo que de verdad marca si un viaje sale
+        a cuenta es <b>cuántos días de vacaciones te come</b>, y eso se calcula
+        exacto, no a ojo:
+      </p>
+      <ul>
+        <li>El <b>día de ida</b> cuenta solo si sales antes de las 17:30. Un vuelo
+            el viernes a las 22:00 no gasta día.</li>
+        <li>Todos los <b>días laborables intermedios</b> cuentan.</li>
+        <li>El <b>día de vuelta</b> cuenta siempre que sea laborable, aunque el
+            vuelo llegue de madrugada: ese día ya no trabajas.</li>
+      </ul>
+      <p>
+        Así, viernes 22:00 → domingo son <b>0 días</b>; jueves 22:00 → domingo es
+        <b>1</b>; y viernes 09:35 → lunes son <b>2</b>. Con Luxair, que no publica
+        horarios, el día se cuenta siempre — mejor pasarse que vender como gratis
+        un viaje que no lo es.
+      </p>
+      <div class="note">
+        <p>
+          Este número explica un patrón que no se ve mirando solo precios: los
+          findes puros escasean y salen caros, mientras que <b>pedir un único día
+          libre</b> (viernes o lunes) suele abrir tarifas mucho mejores. Por eso
+          el filtro «Días libres» y las alertas van juntos.
+        </p>
+      </div>
+
+      <h2 id="alertas">5 · Alertas</h2>
+      <p>
+        Una alerta es un filtro guardado con nombre. Cada <code>fetch</code> las
+        vuelve a evaluar contra la última foto de precios y recuerda qué viajes
+        ya había visto, de modo que puede decirte qué es <b>nuevo</b> en vez de
+        repetirte lo de siempre. Lo nuevo aparece con punto azul en el panel y
+        con <code>NEW</code> en la consola; el contador del menú se pone a cero
+        cuando abres la vista.
+      </p>
+      <p>
+        Si un viaje deja de cumplir la regla, se olvida — así, si vuelve a
+        aparecer más adelante, se vuelve a anunciar como nuevo.
+      </p>
+
+      <h2 id="emparejado">6 · Cómo se arman las idas y vueltas</h2>
       <p>
         La app no busca "viajes": busca trayectos sueltos y luego los combina.
         Cada vuelo hacia Alicante se empareja con cada vuelo de vuelta que caiga
@@ -281,7 +325,7 @@
         antes, cuando pides LUX ves de verdad las mejores opciones de LUX.
       </p>
 
-      <h2 id="datos">5 · Modelo de datos e histórico</h2>
+      <h2 id="datos">7 · Modelo de datos e histórico</h2>
       <p>
         Cada captura <b>añade</b> filas, nunca sobreescribe. Por eso se puede
         dibujar la evolución de un precio: al pulsar cualquier vuelo se consulta
@@ -320,7 +364,7 @@
         larga; en escala lineal casi todos los días saldrían del mismo color.
       </p>
 
-      <h2 id="asistente">6 · El asistente</h2>
+      <h2 id="asistente">8 · El asistente</h2>
       <p>
         El panel de chat habla con Gemini a través de su API REST (no del SDK
         oficial, que arrastra <code>cryptography</code> y no compila en Windows
@@ -341,11 +385,12 @@
         repositorio.
       </p>
 
-      <h2 id="operar">7 · Operarlo día a día</h2>
+      <h2 id="operar">9 · Operarlo día a día</h2>
       <p>Capturar precios y levantar el panel son cosas independientes:</p>
       <pre><code>python -m flighttracker fetch            # rápido: Ryanair + Luxair
 python -m flighttracker fetch --google  # añade Google Flights (lento)
 python -m flighttracker.web             # panel en localhost:5010
+python -m flighttracker alerts          # coincidencias de cada alerta
 python -m flighttracker report          # el mismo ranking, en consola
 python -m flighttracker models          # modelos de Gemini disponibles</code></pre>
       <p>
@@ -355,7 +400,7 @@ python -m flighttracker models          # modelos de Gemini disponibles</code></
         bajando — que es justo lo que hace falta para decidir cuándo comprar.
       </p>
 
-      <h2 id="limites">8 · Límites conocidos</h2>
+      <h2 id="limites">10 · Límites conocidos</h2>
       <ul>
         <li>
           <b>Luxair no trae horarios.</b> Solo fechas. La única forma de

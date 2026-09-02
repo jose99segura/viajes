@@ -33,6 +33,10 @@
       <button id="tabCalendar" data-tip="Calendario">
         <span class="ico">▦</span><span class="label">Calendario</span></button>
 
+      <button id="tabAlerts" data-tip="Alertas">
+        <span class="ico">◔</span><span class="label">Alertas</span>
+        <span class="badge-count" id="alertCount"></span></button>
+
       <div class="group">Guardado</div>
       <button id="tabFavs" data-tip="Favoritos">
         <span class="ico">★</span><span class="label">Favoritos</span>
@@ -108,6 +112,15 @@
             <option value="weekday">Entre semana</option>
           </select>
         </label>
+        <label class="field" id="lDaysOff"><span>Días libres</span>
+          <select id="fDaysOff">
+            <option value="">Los que sean</option>
+            <option value="0">Ninguno (finde puro)</option>
+            <option value="1">Máx. 1 (vie o lun)</option>
+            <option value="2">Máx. 2</option>
+            <option value="3">Máx. 3</option>
+          </select>
+        </label>
         <label class="field"><span>Precio máx</span>
           <input id="fMax" type="number" min="0" step="10" placeholder="sin límite">
         </label>
@@ -171,6 +184,14 @@
           </div>
         </div>
         <div class="cal-months" id="calMonths"></div>
+      </div>
+
+      <div id="alertsView" style="display:none">
+        <div class="alerts-bar">
+          <p>Cada <code>fetch</code> comprueba estas reglas y marca lo que ha aparecido nuevo.</p>
+          <button class="icon-btn primary" id="alertNew">+ Nueva alerta</button>
+        </div>
+        <div id="alertList"></div>
       </div>
 
       <div id="favsView" style="display:none">

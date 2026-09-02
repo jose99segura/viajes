@@ -15,7 +15,7 @@ import requests
 
 from . import db
 from .config import Config, load_env
-from .scoring import convenience_adjustment
+from .scoring import convenience_adjustment, work_days_used
 
 load_env()
 
@@ -181,13 +181,23 @@ def build_context(cfg: Config, max_trips: int = 60, max_legs: int = 60) -> str:
 
     combos.sort(key=lambda c: c[0])
     parts.append(f"# Best round trips (top {min(max_trips, len(combos))} by effective cost)")
-    parts.append("out | departure | back | return | nights | price | effective")
+    parts.append("out | departure | back | return | nights | work days off | price | effective")
     for eff, out, ret, nights in combos[:max_trips]:
+        days_off = work_days_used(datetime.fromisoformat(out["departure"]),
+                                  datetime.fromisoformat(ret["departure"]), cfg.scoring)
         parts.append(
             f"{out['origin']}->ALC | {_fmt_dt(out['departure'])} | "
             f"ALC->{ret['destination']} | {_fmt_dt(ret['departure'])} | {nights} | "
-            f"{out['price'] + ret['price']:.2f} | {eff:.2f}"
+            f"{days_off} | {out['price'] + ret['price']:.2f} | {eff:.2f}"
         )
+    parts.append("")
+    parts.append(
+        "'work days off' = Mon-Fri days the user would need off work for that trip "
+        "(a Friday departure after 17:30 costs none; any weekday return day counts). "
+        "The user strongly prefers 0, accepts 1 (Friday or Monday) for a good "
+        "price, and more only for a real bargain. Always state this number when "
+        "recommending a trip."
+    )
     return "\n".join(parts)
 
 

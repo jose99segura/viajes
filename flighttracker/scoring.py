@@ -57,3 +57,29 @@ def day_adjustment(day, s: Scoring) -> tuple[float, str]:
 def effective_cost(price: float, departure: datetime, s: Scoring) -> float:
     adj, _ = convenience_adjustment(departure, s)
     return price + adj
+
+
+def work_days_used(out_dep: datetime, ret_dep: datetime, s: Scoring,
+                   out_date_only: bool = False, ret_date_only: bool = False) -> int:
+    """How many Mon-Fri days you'd need off work for this trip.
+
+    Departure day counts unless you leave after work (>= work_end). The return
+    day counts whenever it is a weekday: even an early flight home lands during
+    working hours. Every weekday in between counts. When only a date is known
+    (Luxair) the day is counted — better to overstate a day off than to sell a
+    trip as free when it isn't.
+    """
+    from datetime import timedelta
+
+    days = 0
+    day = out_dep.date()
+    last = ret_dep.date()
+    while day <= last:
+        if day.weekday() < SATURDAY:
+            if day == out_dep.date() and not out_date_only:
+                if out_dep.time() < s.work_end:
+                    days += 1
+            else:
+                days += 1
+        day += timedelta(days=1)
+    return days

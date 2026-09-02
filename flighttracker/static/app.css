@@ -596,18 +596,6 @@ th.starcol, td.starcol { width: 34px; padding-left: 10px; padding-right: 0; }
    Narrow screens
    ============================================================ */
 
-/* Below this the sidebar labels crowd the table, so show icons only.
-   The stored preference still wins on wide screens. */
-@media (max-width: 1180px) {
-  .sidebar { width: var(--sidebar-w-collapsed); flex-basis: var(--sidebar-w-collapsed); }
-  .sidebar .brand b, .sidebar .nav .label,
-  .sidebar .nav .badge-count, .foot .label { display: none; }
-  .sidebar .nav .group { opacity: 0; height: 12px; padding: 0; overflow: hidden; }
-  .sidebar .nav a, .sidebar .nav button, .foot button {
-    justify-content: center; padding: 9px 0;
-  }
-}
-
 /* The chat panel stops splitting the layout and floats over it instead. */
 @media (max-width: 1000px) {
   .chat {
@@ -623,3 +611,74 @@ th.starcol, td.starcol { width: 34px; padding-left: 10px; padding-right: 0; }
   .icon-btn span:not(:first-child) { display: none; }
   .chat { width: 100%; }
 }
+
+/* ============================================================
+   Alerts
+   ============================================================ */
+.alerts-bar { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.alerts-bar p { margin: 0; color: var(--muted); font-size: 12.5px; flex: 1; }
+
+.alert {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; margin-bottom: 14px; overflow: hidden;
+}
+.alert.off { opacity: 0.55; }
+.alert-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 16px; border-bottom: 1px solid var(--grid);
+}
+.alert-head h3 { margin: 0; font-size: 14px; font-weight: 620; letter-spacing: -0.01em; }
+.alert-head .rules { color: var(--muted); font-size: 12px; }
+.alert-head .grow { flex: 1; }
+.alert-head .pill {
+  font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+  background: var(--neutral-bg); color: var(--ink-2);
+}
+.alert-head .pill.hit { background: var(--good-bg); color: var(--good-text); }
+.alert-head .pill.new { background: var(--accent); color: #fff; }
+.alert-head button {
+  background: none; border: none; cursor: pointer; color: var(--muted);
+  padding: 4px 7px; border-radius: 6px; font-size: 13px;
+}
+.alert-head button:hover { background: var(--hover); color: var(--ink); }
+
+.alert-rows { display: flex; flex-direction: column; }
+.alert-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 16px; border-bottom: 1px solid var(--grid); font-size: 13px;
+  cursor: pointer;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row:hover { background: var(--hover); }
+.alert-row.is-new { background: var(--selected); }
+.alert-row .route { font-weight: 600; min-width: 108px; }
+.alert-row .dates { color: var(--ink-2); flex: 1; min-width: 0; }
+.alert-row .tag {
+  font-size: 11px; padding: 1px 7px; border-radius: 999px;
+  background: var(--neutral-bg); color: var(--ink-2); white-space: nowrap;
+}
+.alert-row .tag.free { background: var(--good-bg); color: var(--good-text); }
+.alert-row .price {
+  font-weight: 650; font-variant-numeric: tabular-nums; min-width: 78px; text-align: right;
+}
+.alert-row .newdot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: 0 0 6px;
+}
+.alert-empty { padding: 16px; color: var(--muted); font-size: 13px; }
+
+.alert-form {
+  padding: 14px 16px; border-bottom: 1px solid var(--grid);
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: end;
+  background: var(--surface-2);
+}
+.alert-form .field input[type=text] {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 10px; min-width: 190px;
+}
+.alert-form .actions { display: flex; gap: 7px; margin-left: auto; }
+.alert-form button {
+  border-radius: 8px; padding: 7px 13px; cursor: pointer; font-size: 13px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--ink-2);
+}
+.alert-form button.save { border-color: var(--accent); color: var(--accent); }
+.alert-form button:hover { background: var(--hover); }

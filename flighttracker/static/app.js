@@ -9,6 +9,7 @@ const state = {
   chat: [], chatBusy: false,
   favs: [], favKeys: new Set(),
   calMonth: null, calOut: {}, calIn: {}, calDir: "outbound", calSel: null,
+  alerts: [], alertEditing: null, userPicked: false,
 };
 // $ and the theme/sidebar shell live in shell.js (loaded first).
 const fmtEUR = v => v.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
@@ -105,6 +106,7 @@ function tripQuery() {
   if ($("fSame").checked) p.set("same_airport", "1");
   if ($("fDirect").checked) p.set("direct", "1");
   if ($("fMax").value) p.set("max_price", $("fMax").value);
+  if ($("fDaysOff").value !== "") p.set("max_days_off", $("fDaysOff").value);
   return p.toString();
 }
 
@@ -135,13 +137,16 @@ async function load() {
     $("fAirport").appendChild(o);
   }
   await Promise.all([loadTrips(), loadFavs()]);
-  setMode(modeFromHash());
+  // Don't clobber a view the user picked while this was still loading.
+  if (!state.userPicked) setMode(modeFromHash());
   checkChat();
+  // Alert evaluation walks every pairing, so it must not block first paint.
+  loadAlerts().then(() => { if (state.mode === "alerts") renderAlerts(); });
 }
 
 // The docs page links back as /#calendar etc., so honour the hash on arrival
 // and when it changes.
-const MODES = ["trips", "oneway", "calendar", "favs"];
+const MODES = ["trips", "oneway", "calendar", "alerts", "favs"];
 const modeFromHash = () => {
   const m = location.hash.replace("#", "");
   return MODES.includes(m) ? m : "trips";
@@ -154,9 +159,10 @@ async function setMode(mode) {
   state.page = 1; state.selected = null;
   state.sortKey = "effective"; state.sortDir = 1;
   const TITLES = { trips: "Ida y vuelta", oneway: "Solo ida",
-                   calendar: "Calendario", favs: "Favoritos" };
+                   calendar: "Calendario", alerts: "Alertas", favs: "Favoritos" };
   for (const [id, m] of [["tabTrips","trips"], ["tabOneway","oneway"],
-                         ["tabCalendar","calendar"], ["tabFavs","favs"]]) {
+                         ["tabCalendar","calendar"], ["tabAlerts","alerts"],
+                         ["tabFavs","favs"]]) {
     $(id).classList.toggle("active", mode === m);
   }
   $("viewTitle").textContent = TITLES[mode] || "";
@@ -164,9 +170,11 @@ async function setMode(mode) {
   $("tableView").style.display = isTable ? "" : "none";
   $("calendarView").style.display = mode === "calendar" ? "" : "none";
   $("favsView").style.display = mode === "favs" ? "" : "none";
-  $("toolbar").style.display = mode === "favs" ? "none" : "";
+  $("alertsView").style.display = mode === "alerts" ? "" : "none";
+  const chrome = mode === "favs" || mode === "alerts";
+  $("toolbar").style.display = chrome ? "none" : "";
   document.querySelector(".tiles").style.display =
-    (mode === "favs" || mode === "calendar") ? "none" : "";
+    (chrome || mode === "calendar") ? "none" : "";
   $("lNights").style.display = mode === "trips" ? "" : "none";
   $("lSame").style.display = mode === "trips" ? "" : "none";
   $("lSource").style.display = mode === "oneway" ? "" : "none";
@@ -174,10 +182,12 @@ async function setMode(mode) {
     $(id).closest("label").style.display = mode === "calendar" ? "none" : "";
   }
   $("lDirect").style.display = mode === "calendar" ? "none" : "";
+  $("lDaysOff").style.display = mode === "trips" ? "" : "none";
   $("calDirWrap").style.display = mode === "calendar" ? "" : "none";
   $("detail").classList.remove("open");
 
   if (mode === "favs") { await loadFavs(); renderFavs(); return; }
+  if (mode === "alerts") { await loadAlerts(); renderAlerts(); return; }
   if (mode === "calendar") { await loadCalendar(); renderCalendar(); return; }
   renderHead();
   if (toTrips) await loadTrips();
@@ -334,6 +344,7 @@ const COLS = {
     { k: "out_route", t: "Ida" }, { k: "out_dep", t: "Salida" },
     { k: "ret_route", t: "Vuelta" }, { k: "ret_dep", t: "Regreso" },
     { k: "nights", t: "Noches", num: true },
+    { k: "days_off", t: "Días libres", num: true },
     { k: "price", t: "Precio", num: true },
     { k: "adjustment", t: "Ajuste", num: true },
     { k: "effective", t: "Efectivo", num: true },
@@ -493,6 +504,13 @@ function render() {
   renderPager(all.length, pages);
 }
 
+// 0 days off is the thing worth spotting, so it reads as a win, not a zero.
+function daysOffCell(d) {
+  if (d === undefined || d === null) return "–";
+  if (d === 0) return `<span class="badge good">ninguno</span>`;
+  return `<span class="badge ${d <= 1 ? "" : "warn"}">${d}</span>`;
+}
+
 function tripRow(t) {
   return starCell(tripFav(t)) + `
     <td>${legCell(t.out.origin, "ALC", t.out.airline, t.out.stops)}</td>
@@ -500,6 +518,7 @@ function tripRow(t) {
     <td>${legCell("ALC", t.ret.destination, t.ret.airline, t.ret.stops)}</td>
     <td>${whenCell(t.ret.departure, t.ret.date_only)}</td>
     <td class="num">${t.nights}</td>
+    <td class="num">${daysOffCell(t.days_off)}</td>
     <td class="num">${fmtEUR(t.price)}${t.package ? ' <span class="badge">paq.</span>' : ""}</td>
     <td class="num adj">${t.adjustment > 0 ? "+" : ""}${t.adjustment.toFixed(0)} €</td>
     <td class="num"><span class="eff">${fmtEUR(t.effective)}</span></td>
@@ -919,10 +938,12 @@ function toggleChat(force) {
 
 // ---------- events ----------
 
-$("tabTrips").addEventListener("click", () => setMode("trips"));
-$("tabOneway").addEventListener("click", () => setMode("oneway"));
-$("tabCalendar").addEventListener("click", () => setMode("calendar"));
-$("tabFavs").addEventListener("click", () => setMode("favs"));
+const pick = mode => { state.userPicked = true; setMode(mode); };
+$("tabTrips").addEventListener("click", () => pick("trips"));
+$("tabOneway").addEventListener("click", () => pick("oneway"));
+$("tabCalendar").addEventListener("click", () => pick("calendar"));
+$("tabFavs").addEventListener("click", () => pick("favs"));
+$("tabAlerts").addEventListener("click", () => pick("alerts"));
 $("calDir").addEventListener("change", e => {
   state.calDir = e.target.value; renderCalendar();
 });
@@ -955,7 +976,7 @@ function onFilterChange() {
     filterTimer = setTimeout(async () => { await loadCalendar(); renderCalendar(); }, 200);
     return;
   }
-  if (state.mode === "favs") return;
+  if (state.mode === "favs" || state.mode === "alerts") return;
   if (state.mode !== "trips") { render(); return; }
   clearTimeout(filterTimer);
   filterTimer = setTimeout(async () => {
@@ -964,10 +985,215 @@ function onFilterChange() {
     render();
   }, 200);
 }
-for (const id of ["fAirport", "fWhen", "fSource", "fMax", "fSame", "fDirect", "fMinN", "fMaxN"]) {
+for (const id of ["fAirport", "fWhen", "fSource", "fMax", "fSame", "fDirect",
+                  "fMinN", "fMaxN", "fDaysOff"]) {
   $(id).addEventListener("input", onFilterChange);
 }
 
+
+
+// ---------- alerts ----------
+
+async function loadAlerts() {
+  const data = await (await fetch("/api/alerts")).json();
+  state.alerts = data.alerts;
+  const n = data.unseen;
+  $("alertCount").textContent = n ? String(n) : "";
+  $("alertCount").style.color = n ? "var(--accent)" : "";
+}
+
+function alertRules(a) {
+  const bits = [];
+  bits.push(a.airport ? `desde ${a.airport}` : "cualquier aeropuerto");
+  if (a.max_price != null) bits.push(`≤ ${Math.round(a.max_price)} €`);
+  bits.push(a.max_days_off == null ? "días libres: los que sean"
+    : a.max_days_off === 0 ? "sin días libres" : `≤ ${a.max_days_off} día(s) libre(s)`);
+  bits.push(`${a.min_nights}–${a.max_nights} noches`);
+  if (a.direct_only) bits.push("solo directos");
+  return bits.join(" · ");
+}
+
+const alertDay = iso => {
+  const d = new Date(iso);
+  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+};
+const alertTime = leg => {
+  if (leg.date_only) return "";
+  const d = new Date(leg.departure);
+  return ` ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
+function alertRow(m) {
+  const off = m.days_off === 0
+    ? `<span class="tag free">sin días libres</span>`
+    : `<span class="tag">${m.days_off} día${m.days_off === 1 ? "" : "s"} libre${m.days_off === 1 ? "" : "s"}</span>`;
+  const el = document.createElement("div");
+  el.className = "alert-row" + (m.is_new ? " is-new" : "");
+  el.innerHTML =
+    (m.is_new ? `<span class="newdot" title="Nuevo"></span>` : `<span style="width:6px"></span>`) +
+    `<span class="route">${m.out.origin} → ALC → ${m.ret.destination}</span>` +
+    `<span class="dates">${alertDay(m.out.departure)}${alertTime(m.out)} → ` +
+    `${alertDay(m.ret.departure)}${alertTime(m.ret)} · ${m.nights}n · ` +
+    `${m.out.airline}${m.package ? " (paq.)" : ""}</span>` +
+    off +
+    `<span class="price">${fmtEUR(m.price)}</span>`;
+  el.addEventListener("click", () => {
+    // Jump to the trip list narrowed around this match.
+    $("fAirport").value = m.out.origin === "ALC" ? "" : m.out.origin;
+    $("fMinN").value = m.nights;
+    $("fMaxN").value = m.nights;
+    $("fDaysOff").value = "";
+    $("fWhen").value = "";
+    $("fMax").value = "";
+    setMode("trips");
+  });
+  return el;
+}
+
+function renderAlerts() {
+  const host = $("alertList");
+  host.innerHTML = "";
+  if (!state.alerts.length) {
+    host.innerHTML = `<div class="alert-empty">No hay alertas todavía.</div>`;
+    return;
+  }
+  for (const entry of state.alerts) {
+    const a = entry.alert;
+    const el = document.createElement("div");
+    el.className = "alert" + (a.enabled ? "" : " off");
+    const nNew = entry.matches.filter(m => m.is_new).length;
+    el.innerHTML = `
+      <div class="alert-head">
+        <div>
+          <h3>${a.name}</h3>
+          <div class="rules">${alertRules(a)}</div>
+        </div>
+        <div class="grow"></div>
+        ${nNew ? `<span class="pill new">${nNew} nueva${nNew === 1 ? "" : "s"}</span>` : ""}
+        <span class="pill ${entry.total ? "hit" : ""}">${entry.total} coincidencia${entry.total === 1 ? "" : "s"}</span>
+        <button data-act="toggle" title="${a.enabled ? "Desactivar" : "Activar"}">${a.enabled ? "◉" : "○"}</button>
+        <button data-act="edit" title="Editar">✎</button>
+        <button data-act="del" title="Borrar">✕</button>
+      </div>
+      <div class="alert-rows"></div>`;
+
+    const rows = el.querySelector(".alert-rows");
+    if (!a.enabled) {
+      rows.innerHTML = `<div class="alert-empty">Desactivada.</div>`;
+    } else if (!entry.matches.length) {
+      rows.innerHTML = `<div class="alert-empty">Nada por ahora. Se revisa en cada <code>fetch</code>.</div>`;
+    } else {
+      for (const m of entry.matches.slice(0, 8)) rows.appendChild(alertRow(m));
+      if (entry.total > 8) {
+        const more = document.createElement("div");
+        more.className = "alert-empty";
+        more.textContent = `y ${entry.total - 8} más`;
+        rows.appendChild(more);
+      }
+    }
+
+    el.querySelector('[data-act="toggle"]').addEventListener("click", async () => {
+      await fetch(`/api/alerts/${a.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...a, enabled: !a.enabled }),
+      });
+      await loadAlerts();
+      renderAlerts();
+    });
+    el.querySelector('[data-act="edit"]').addEventListener("click", () => {
+      state.alertEditing = state.alertEditing === a.id ? null : a.id;
+      renderAlerts();
+    });
+    el.querySelector('[data-act="del"]').addEventListener("click", async () => {
+      await fetch(`/api/alerts/${a.id}`, { method: "DELETE" });
+      await loadAlerts();
+      renderAlerts();
+    });
+
+    if (state.alertEditing === a.id) el.insertBefore(alertForm(a), el.children[1]);
+    host.appendChild(el);
+  }
+
+  if (state.alertEditing === "new") host.prepend(wrapForm(alertForm(null)));
+
+  // Opening this view is what marks the new matches as read.
+  if (state.alerts.some(e => e.unseen)) {
+    fetch("/api/alerts/seen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    }).then(() => { $("alertCount").textContent = ""; });
+  }
+}
+
+function wrapForm(form) {
+  const el = document.createElement("div");
+  el.className = "alert";
+  el.appendChild(form);
+  return el;
+}
+
+function alertForm(a) {
+  const f = document.createElement("div");
+  f.className = "alert-form";
+  const v = (x, d) => (x === null || x === undefined ? d : x);
+  const esc = t => String(t).replace(/"/g, "&quot;");
+  f.innerHTML = `
+    <label class="field"><span>Nombre</span>
+      <input type="text" data-f="name" value="${a ? esc(a.name) : ""}" placeholder="Finde barato"></label>
+    <label class="field"><span>Aeropuerto</span>
+      <select data-f="airport">
+        <option value="">Cualquiera</option>
+        ${["LUX", "SCN", "HHN"].map(x =>
+          `<option value="${x}" ${a && a.airport === x ? "selected" : ""}>${x}</option>`).join("")}
+      </select></label>
+    <label class="field"><span>Precio máx (€)</span>
+      <input type="number" class="narrow" data-f="max_price" min="0" step="10"
+             style="width:80px" value="${a && a.max_price != null ? Math.round(a.max_price) : ""}"></label>
+    <label class="field"><span>Días libres máx</span>
+      <select data-f="max_days_off">
+        <option value="">Los que sean</option>
+        ${[0, 1, 2, 3].map(n =>
+          `<option value="${n}" ${a && a.max_days_off === n ? "selected" : ""}>${n === 0 ? "Ninguno" : n}</option>`).join("")}
+      </select></label>
+    <label class="field"><span>Noches</span>
+      <span class="nights">
+        <input type="number" class="narrow" data-f="min_nights" min="0" value="${v(a && a.min_nights, 1)}">
+        <span>–</span>
+        <input type="number" class="narrow" data-f="max_nights" min="0" value="${v(a && a.max_nights, 4)}">
+      </span></label>
+    <label class="toggle"><input type="checkbox" data-f="direct_only" ${a && a.direct_only ? "checked" : ""}> solo directos</label>
+    <div class="actions">
+      <button data-act="cancel">Cancelar</button>
+      <button class="save" data-act="save">Guardar</button>
+    </div>`;
+
+  f.querySelector('[data-act="cancel"]').addEventListener("click", () => {
+    state.alertEditing = null;
+    renderAlerts();
+  });
+  f.querySelector('[data-act="save"]').addEventListener("click", async () => {
+    const body = {};
+    for (const el of f.querySelectorAll("[data-f]")) {
+      body[el.dataset.f] = el.type === "checkbox" ? el.checked : el.value;
+    }
+    await fetch(a ? `/api/alerts/${a.id}` : "/api/alerts", {
+      method: a ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(a ? { ...body, enabled: !!a.enabled } : body),
+    });
+    state.alertEditing = null;
+    await loadAlerts();
+    renderAlerts();
+  });
+  return f;
+}
+
+$("alertNew").addEventListener("click", () => {
+  state.alertEditing = state.alertEditing === "new" ? null : "new";
+  renderAlerts();
+});
 
 // Redraw anything painted with resolved colours when the theme changes.
 window.onThemeChange = () => {
