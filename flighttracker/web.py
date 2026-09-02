@@ -16,11 +16,30 @@ from .scoring import convenience_adjustment, day_adjustment
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
+# Local single-user app: never serve a stale stylesheet or script after an edit.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
+
+def _page(name: str) -> Response:
+    """Serve an HTML page with ?v=<mtime> appended to its own asset links, so a
+    browser can never render an edited page against a cached stylesheet."""
+    html = (STATIC_DIR / name).read_text(encoding="utf-8")
+    for asset in ("app.css", "app.js", "shell.js"):
+        path = STATIC_DIR / asset
+        if path.exists():
+            html = html.replace(f"/static/{asset}",
+                                f"/static/{asset}?v={int(path.stat().st_mtime)}")
+    return Response(html, mimetype="text/html")
 
 
 @app.get("/")
 def index():
-    return send_from_directory(STATIC_DIR, "index.html")
+    return _page("index.html")
+
+
+@app.get("/info")
+def info():
+    return _page("info.html")
 
 
 @app.get("/api/flights")

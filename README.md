@@ -70,6 +70,11 @@ charts show how a fare moved over time — that's how you learn when to buy.
 
 ## Dashboard
 
+The UI is a sidebar app: the nav collapses to icons, and the theme can be set
+to light, dark or system. Both choices persist in `localStorage` and are applied
+before first paint, so there is no flash on reload. `/info` documents how the
+tracker works — sources, the scoring model, the data model and the known limits.
+
 - **Ida y vuelta** — pairs every outbound leg with every return leg, scores the
   pair, and ranks by combined effective cost. Luxair's whole-trip fares are
   mixed in, tagged `paq.`. Filter by airport, nights, when you'd depart, price,
@@ -119,7 +124,11 @@ flighttracker/
   __main__.py          CLI: fetch / report / history
   web.py               Flask app: dashboard + /api/{flights,trips,history,chat}
   chat.py              AI assistant — snapshot context + streaming (Gemini/Claude)
-  static/index.html    dashboard UI (tabs, filters, pagination, charts, chat)
+  static/index.html    dashboard shell
+  static/info.html     /info - how the whole thing works, technically
+  static/app.css       design tokens, app shell, every component
+  static/shell.js      theme switching + collapsible sidebar (both pages)
+  static/app.js        dashboard logic (filters, pagination, charts, chat)
   config.py            config.yaml loader
   db.py                SQLite schema, migrations and queries
                        (fares, package_fares, favorites)

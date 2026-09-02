@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cómo funciona · viajes</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+<script>
+  try {
+    const t = localStorage.getItem("theme");
+    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+    if (localStorage.getItem("nav") === "collapsed")
+      document.documentElement.classList.add("pre-collapsed");
+  } catch (e) {}
+</script>
+</head>
+<body>
+<div class="shell">
+  <nav class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="mark">✈</span>
+      <b>viajes</b>
+    </div>
+
+    <div class="nav">
+      <div class="group">Buscar</div>
+      <a href="/#trips" data-tip="Ida y vuelta">
+        <span class="ico">⇄</span><span class="label">Ida y vuelta</span></a>
+      <a href="/#oneway" data-tip="Solo ida">
+        <span class="ico">→</span><span class="label">Solo ida</span></a>
+      <a href="/#calendar" data-tip="Calendario">
+        <span class="ico">▦</span><span class="label">Calendario</span></a>
+
+      <div class="group">Guardado</div>
+      <a href="/#favs" data-tip="Favoritos">
+        <span class="ico">★</span><span class="label">Favoritos</span></a>
+
+      <div class="group">Ayuda</div>
+      <a href="/info" class="active" data-tip="Cómo funciona">
+        <span class="ico">?</span><span class="label">Cómo funciona</span></a>
+    </div>
+
+    <div class="foot">
+      <button id="navToggle" data-tip="Expandir menú">
+        <span class="ico" id="navIcon">«</span><span class="label">Contraer menú</span></button>
+    </div>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <h1>Cómo funciona</h1>
+      <div class="grow"></div>
+      <div class="menu-wrap">
+        <button class="icon-btn" id="themeBtn" title="Tema">
+          <span id="themeIcon">◐</span><span>Tema</span>
+        </button>
+        <div class="menu" id="themeMenu">
+          <button data-set-theme="light"><span>☀</span> Claro <span class="check"></span></button>
+          <button data-set-theme="dark"><span>☾</span> Oscuro <span class="check"></span></button>
+          <button data-set-theme="system"><span>◐</span> Sistema <span class="check"></span></button>
+        </div>
+      </div>
+      <a class="icon-btn primary" href="/">← Volver al panel</a>
+    </div>
+
+    <div class="content doc">
+      <h1>Cómo funciona esto por dentro</h1>
+      <p class="lede">
+        Un rastreador de precios para volar entre Luxemburgo / Saarbrücken /
+        Frankfurt-Hahn y Alicante. Captura tarifas de tres fuentes distintas,
+        las guarda con histórico en SQLite, y las ordena no por precio sino por
+        <b>coste efectivo</b>: lo que cuesta el billete más lo que te cuesta a
+        ti en tiempo y días de vacaciones.
+      </p>
+
+      <div class="toc">
+        <ol>
+          <li><a href="#arquitectura">Arquitectura general</a></li>
+          <li><a href="#fuentes">Las tres fuentes de datos</a></li>
+          <li><a href="#coste">El modelo de coste efectivo</a></li>
+          <li><a href="#emparejado">Cómo se arman las idas y vueltas</a></li>
+          <li><a href="#datos">Modelo de datos e histórico</a></li>
+          <li><a href="#asistente">El asistente</a></li>
+          <li><a href="#operar">Operarlo día a día</a></li>
+          <li><a href="#limites">Límites conocidos</a></li>
+        </ol>
+      </div>
+
+      <h2 id="arquitectura">1 · Arquitectura general</h2>
+      <p>
+        Todo corre en tu máquina. No hay servidor remoto, ni cuenta, ni nada que
+        mantener: un proceso de Python que sirve una página y un fichero SQLite
+        con el histórico de precios.
+      </p>
+
+      <figure class="figure">
+        <svg viewBox="0 0 760 250" xmlns="http://www.w3.org/2000/svg"
+             font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12">
+          <defs>
+            <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3"
+                    orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="var(--baseline)"/></marker>
+          </defs>
+
+          <text x="14" y="20" fill="var(--muted)" font-size="10.5"
+                letter-spacing="0.06em">FUENTES EXTERNAS</text>
+          <g>
+            <rect x="14" y="30" width="150" height="38" rx="8"
+                  fill="var(--surface-2)" stroke="var(--border)"/>
+            <text x="28" y="48" fill="var(--ink)" font-weight="600">Ryanair API</text>
+            <text x="28" y="61" fill="var(--muted)" font-size="10.5">HHN · SCN, con horas</text>
+
+            <rect x="14" y="78" width="150" height="38" rx="8"
+                  fill="var(--surface-2)" stroke="var(--border)"/>
+            <text x="28" y="96" fill="var(--ink)" font-weight="600">Google Flights</text>
+            <text x="28" y="109" fill="var(--muted)" font-size="10.5">vía fast-flights</text>
+
+            <rect x="14" y="126" width="150" height="38" rx="8"
+                  fill="var(--surface-2)" stroke="var(--border)"/>
+            <text x="28" y="144" fill="var(--ink)" font-weight="600">Luxair</text>
+            <text x="28" y="157" fill="var(--muted)" font-size="10.5">LUX directo, sin horas</text>
+          </g>
+
+          <path d="M168,49 L208,49 L208,97 L232,97" fill="none" stroke="var(--baseline)"
+                stroke-width="1.5" marker-end="url(#ar)"/>
+          <path d="M168,97 L232,97" fill="none" stroke="var(--baseline)"
+                stroke-width="1.5" marker-end="url(#ar)"/>
+          <path d="M168,145 L208,145 L208,97 L232,97" fill="none" stroke="var(--baseline)"
+                stroke-width="1.5" marker-end="url(#ar)"/>
+
+          <rect x="236" y="76" width="126" height="42" rx="8"
+                fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+          <text x="250" y="94" fill="var(--ink)" font-weight="600">fetch</text>
+          <text x="250" y="108" fill="var(--muted)" font-size="10.5">normaliza y guarda</text>
+
+          <path d="M366,97 L410,97" fill="none" stroke="var(--baseline)"
+                stroke-width="1.5" marker-end="url(#ar)"/>
+
+          <rect x="414" y="66" width="130" height="62" rx="8"
+                fill="var(--surface-2)" stroke="var(--border)"/>
+          <text x="428" y="86" fill="var(--ink)" font-weight="600">prices.db</text>
+          <text x="428" y="101" fill="var(--muted)" font-size="10.5">fares</text>
+          <text x="428" y="114" fill="var(--muted)" font-size="10.5">package_fares</text>
+          <text x="428" y="127" fill="var(--muted)" font-size="10.5">favorites</text>
+
+          <path d="M548,97 L592,97" fill="none" stroke="var(--baseline)"
+                stroke-width="1.5" marker-end="url(#ar)"/>
+
+          <rect x="596" y="52" width="150" height="42" rx="8"
+                fill="var(--surface)" stroke="var(--border)"/>
+          <text x="610" y="70" fill="var(--ink)" font-weight="600">Flask + JSON</text>
+          <text x="610" y="84" fill="var(--muted)" font-size="10.5">empareja y puntúa</text>
+
+          <rect x="596" y="104" width="150" height="42" rx="8"
+                fill="var(--surface)" stroke="var(--border)"/>
+          <text x="610" y="122" fill="var(--ink)" font-weight="600">Navegador</text>
+          <text x="610" y="136" fill="var(--muted)" font-size="10.5">esta interfaz</text>
+
+          <path d="M671,94 L671,104" fill="none" stroke="var(--baseline)"
+                stroke-width="1.5" marker-end="url(#ar)"/>
+
+          <rect x="236" y="176" width="308" height="40" rx="8"
+                fill="var(--surface)" stroke="var(--border)" stroke-dasharray="4 3"/>
+          <text x="250" y="194" fill="var(--ink)" font-weight="600">Asistente (Gemini)</text>
+          <text x="250" y="208" fill="var(--muted)" font-size="10.5">recibe el snapshot como contexto</text>
+          <path d="M479,138 L479,176" fill="none" stroke="var(--baseline)"
+                stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+        </svg>
+        <figcaption>
+          El <code>fetch</code> escribe; la web solo lee. Puedes capturar precios
+          con el panel cerrado, y viceversa.
+        </figcaption>
+      </figure>
+
+      <h2 id="fuentes">2 · Las tres fuentes de datos</h2>
+      <p>
+        Ninguna fuente cubre todas las rutas, y cada una entrega los datos con
+        una forma distinta. Por eso hay tres proveedores en vez de uno.
+      </p>
+
+      <h3>Ryanair — la fuente principal</h3>
+      <p>
+        Usa la API pública que alimenta el mapa de tarifas de ryanair.com
+        (<code>farfnd/v4/oneWayFares/.../cheapestPerDay</code>). Devuelve la
+        tarifa más barata de cada día con la <b>hora exacta</b> de salida y
+        llegada, meses vista, y es rápida y estable. Cubre HHN y SCN hacia
+        Alicante y vuelta. Es la única fuente que da datos completos por
+        trayecto suelto.
+      </p>
+
+      <h3>Google Flights — la red de seguridad</h3>
+      <p>
+        A través de la librería <code>fast-flights</code>, que habla el mismo
+        protocolo protobuf que usa la web de Google. No se conduce un navegador:
+        eso se rompería cada dos semanas. Sirve para ver aerolíneas que Ryanair
+        no conoce y para contrastar precios.
+      </p>
+      <div class="note">
+        <p>
+          Desde una IP europea, Google responde con la pantalla de consentimiento
+          de cookies en vez de con resultados. El proveedor envía las cookies de
+          consentimiento en la petición para saltar ese muro. Además decodifica
+          la respuesta como UTF-8 de forma explícita, porque
+          <code>requests</code> asume ISO-8859-1 cuando la respuesta no declara
+          codificación, y eso convertía los <code>€</code> en galimatías.
+        </p>
+      </div>
+
+      <h3>Luxair — la única forma de ver LUX directo</h3>
+      <p>
+        Ryanair no vuela LUX–ALC y Google solo enseña itinerarios con una o dos
+        escalas desde 110 €. Pero Luxair sí opera esa ruta todo el año como ruta
+        de LuxairTours (habitualmente miércoles y sábado, más lunes en verano
+        alto). Este proveedor consulta el calendario de precios de
+        <code>api.luxair.lu</code>, que es lo que usa su propia web.
+      </p>
+      <p>Tiene dos particularidades que condicionan todo lo demás:</p>
+      <ul>
+        <li>
+          <b>Cotiza el viaje entero a un precio cerrado</b>, para una fecha de
+          salida más un número de noches. No hay precio de trayecto suelto que
+          emparejar, así que estas tarifas viven en su propia tabla
+          (<code>package_fares</code>) y en la lista salen marcadas
+          <code>paq.</code>
+        </li>
+        <li>
+          <b>No publica horarios.</b> La API de Amadeus que sí los tiene está
+          detrás de protección anti-bots, y no se intenta evadirla. Como la ruta
+          vuela como mucho una vez al día, la fecha sigue siendo accionable: la
+          interfaz muestra <i>sin hora</i> en lugar de inventarse un horario.
+        </li>
+      </ul>
+
+      <h2 id="coste">3 · El modelo de coste efectivo</h2>
+      <p>
+        Ordenar por precio a secas es engañoso: un vuelo de 22 € un martes a las
+        10:00 te cuesta además un día de vacaciones. La idea central de la app es
+        convertir esa incomodidad en euros y sumarla al billete.
+      </p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Situación</th><th>Ajuste</th><th>Por qué</th></tr></thead>
+          <tbody>
+            <tr><td>Sale sábado o domingo</td><td>−15 €</td><td>No gastas días libres</td></tr>
+            <tr><td>Viernes después de las 17:30</td><td>−25 €</td><td>El mejor caso: sales al acabar de trabajar</td></tr>
+            <tr><td>Entre semana (lun–jue)</td><td>+20 €</td><td>Escapada más incómoda, trabajas al día siguiente</td></tr>
+            <tr><td>En horario laboral (09:00–17:30)</td><td>+60 €</td><td>Equivale a pedir el día</td></tr>
+            <tr><td>Antes de las 06:30</td><td>+15 €</td><td>Madrugón</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Los ajustes se acumulan y se aplican <b>a cada trayecto por separado</b>,
+        así que un viaje de ida y vuelta suma cuatro posibles ajustes. Todos los
+        valores están en <code>config.yaml</code>: si para ti un día de vacaciones
+        no vale 60 €, cámbialo y el ranking entero se reordena.
+      </p>
+      <div class="note">
+        <p>
+          Las tarifas de Luxair se puntúan <b>solo por día de la semana</b>, nunca
+          por hora. Sin horarios publicados no se puede saber si sale en horario
+          laboral, y penalizarlas por algo que no podemos ver las hundiría
+          injustamente en el ranking.
+        </p>
+      </div>
+
+      <h2 id="emparejado">4 · Cómo se arman las idas y vueltas</h2>
+      <p>
+        La app no busca "viajes": busca trayectos sueltos y luego los combina.
+        Cada vuelo hacia Alicante se empareja con cada vuelo de vuelta que caiga
+        dentro de la ventana de noches que hayas pedido. Eso incluye
+        <b>aeropuertos mezclados</b>: ir desde Saarbrücken y volver a Hahn suele
+        salir más barato que cerrar el viaje en el mismo sitio, y la casilla
+        «mismo aeropuerto» te deja excluirlo si no te compensa conducir.
+      </p>
+      <p>
+        El filtrado ocurre en el servidor, antes de recortar resultados, y esto
+        importa: hay decenas de miles de combinaciones posibles, y si se cortaran
+        primero las 2.000 mejores globales, todos los viajes desde LUX
+        desaparecerían detrás de los de Ryanair, que son más baratos. Filtrando
+        antes, cuando pides LUX ves de verdad las mejores opciones de LUX.
+      </p>
+
+      <h2 id="datos">5 · Modelo de datos e histórico</h2>
+      <p>
+        Cada captura <b>añade</b> filas, nunca sobreescribe. Por eso se puede
+        dibujar la evolución de un precio: al pulsar cualquier vuelo se consulta
+        todo lo que se ha visto para ese trayecto y esa fecha.
+      </p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Tabla</th><th>Contiene</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>fares</code></td>
+              <td>Un trayecto suelto con hora exacta: origen, destino, salida,
+                  llegada, aerolínea, escalas, precio y el instante de la captura.</td>
+            </tr>
+            <tr>
+              <td><code>package_fares</code></td>
+              <td>Un viaje completo a precio cerrado (Luxair): fecha de salida,
+                  número de noches y precio. Sin horas.</td>
+            </tr>
+            <tr>
+              <td><code>favorites</code></td>
+              <td>Lo que has guardado con la estrella, junto al precio que tenía
+                  al guardarlo — de ahí sale la flecha de subida o bajada.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Cuando Ryanair y Google listan el mismo vuelo, se toma <b>el más barato de
+        la última captura</b>. Antes se cogía una fila cualquiera, y los favoritos
+        parecían encarecerse solos al saltar de una fuente a otra.
+      </p>
+      <p>
+        El calendario usa el mínimo por día y lo colorea en escala logarítmica,
+        porque las tarifas se agolpan en la parte barata con una cola cara muy
+        larga; en escala lineal casi todos los días saldrían del mismo color.
+      </p>
+
+      <h2 id="asistente">6 · El asistente</h2>
+      <p>
+        El panel de chat habla con Gemini a través de su API REST (no del SDK
+        oficial, que arrastra <code>cryptography</code> y no compila en Windows
+        ARM64). En cada pregunta se le envía un resumen del estado actual de la
+        base de datos: rutas, mejores trayectos, mejores combinaciones, tarifas de
+        Luxair y los pesos del scoring. Por eso responde con tus fechas y precios
+        reales en vez de con generalidades.
+      </p>
+      <p>
+        Cuando recomienda una opción emite además una línea marcadora
+        (<code>[TRIP]</code>, <code>[FLIGHT]</code> o <code>[PACKAGE]</code>) que
+        la interfaz convierte en una tarjeta con botón de guardar. Así lo que te
+        propone el asistente entra en Favoritos de un clic. Si el modelo no emite
+        el marcador, simplemente no aparece la tarjeta: el texto se lee igual.
+      </p>
+      <p>
+        La clave vive en el fichero <code>.env</code>, que está excluido del
+        repositorio.
+      </p>
+
+      <h2 id="operar">7 · Operarlo día a día</h2>
+      <p>Capturar precios y levantar el panel son cosas independientes:</p>
+      <pre><code>python -m flighttracker fetch            # rápido: Ryanair + Luxair
+python -m flighttracker fetch --google  # añade Google Flights (lento)
+python -m flighttracker.web             # panel en localhost:5010
+python -m flighttracker report          # el mismo ranking, en consola
+python -m flighttracker models          # modelos de Gemini disponibles</code></pre>
+      <p>
+        El histórico solo tiene valor si se alimenta con regularidad. Con una
+        captura diaria en el Programador de tareas de Windows, en un par de
+        semanas los gráficos empiezan a decirte si un precio está subiendo o
+        bajando — que es justo lo que hace falta para decidir cuándo comprar.
+      </p>
+
+      <h2 id="limites">8 · Límites conocidos</h2>
+      <ul>
+        <li>
+          <b>Luxair no trae horarios.</b> Solo fechas. La única forma de
+          obtenerlos sería atravesar la protección anti-bots de su motor de
+          reservas, y eso no se hace.
+        </li>
+        <li>
+          <b>Los precios son los del momento de la captura</b>, no en vivo. Al
+          abrir el panel ves la última foto, no el precio de ahora mismo.
+        </li>
+        <li>
+          <b>Solo tarifas base, un adulto.</b> No se cuentan maletas, asientos ni
+          extras, que en Ryanair pueden cambiar bastante la comparación real
+          frente a Luxair, donde suele ir más incluido.
+        </li>
+        <li>
+          <b>Google no siempre responde.</b> Cuando falla para un día concreto,
+          la captura sigue con el resto en lugar de abortar.
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+<script src="/static/shell.js"></script>
+</body>
+</html>
