@@ -50,6 +50,79 @@ function legCell(origin, destination, airline, stops) {
     `<span class="op">${airline || "–"} · <span class="${stops ? "" : "direct"}">${stopsES(stops)}</span></span></span>`;
 }
 
+
+// ---------- booking links ----------
+//
+// Ryanair's own deep-link format (originIata/destinationIata/dateOut/dateIn)
+// is stable and widely used, so we can prefill it exactly. Luxair's booking
+// engine has no documented deep-link parameters and sits behind bot
+// protection (see /info) — we only know the real luxair.lu URL works, not
+// how to prefill it, so that link is honest about needing manual dates.
+// Anything else (Google-sourced fares, mixed-source pairings) falls back to
+// a Google Flights search query, which resolves for any airport pair.
+
+function _bookDay(iso) { return iso.slice(0, 10); }
+
+function bookingLinkForLeg(source, origin, destination, departureIso, returnIso) {
+  const dateOut = _bookDay(departureIso);
+  if (source === "ryanair") {
+    const p = new URLSearchParams({
+      adults: "1", teens: "0", children: "0", infants: "0",
+      dateOut, isConnectedFlight: "false", discount: "0", promoCode: "",
+      originIata: origin, destinationIata: destination,
+      isReturn: returnIso ? "true" : "false",
+    });
+    if (returnIso) p.set("dateIn", _bookDay(returnIso));
+    return {
+      label: returnIso ? "Reservar ida y vuelta · Ryanair" : "Reservar · Ryanair",
+      url: `https://www.ryanair.com/es/es/trip/flights/select?${p}`,
+    };
+  }
+  if (source === "luxair") {
+    return {
+      label: "Buscar en luxair.lu",
+      url: "https://www.luxair.lu/en",
+      muted: true,
+      title: `Luxair no permite enlazar la búsqueda ya rellena — se abre su web, ` +
+             `introduce ${origin} → ${destination} el ${dateOut}.`,
+    };
+  }
+  const q = returnIso
+    ? `Flights from ${origin} to ${destination} on ${dateOut} through ${_bookDay(returnIso)}`
+    : `Flights from ${origin} to ${destination} on ${dateOut}`;
+  return {
+    label: "Buscar en Google Flights",
+    url: `https://www.google.com/travel/flights?q=${encodeURIComponent(q)}`,
+    muted: true,
+  };
+}
+
+// One-way flight -> a single link. Round trip -> one combined Ryanair link
+// when both legs are Ryanair (its own flow searches both at once), otherwise
+// one link per leg since a single URL can't span two different sites.
+function bookingLinksFor(item, isTrip) {
+  if (!isTrip) {
+    return [bookingLinkForLeg(item.source, item.origin, item.destination, item.departure)];
+  }
+  if (item.package) {
+    return [bookingLinkForLeg("luxair", item.out.origin, item.out.destination, item.out.departure)];
+  }
+  if (item.out.source === "ryanair" && item.ret.source === "ryanair") {
+    return [bookingLinkForLeg("ryanair", item.out.origin, "ALC", item.out.departure, item.ret.departure)];
+  }
+  return [
+    bookingLinkForLeg(item.out.source, item.out.origin, "ALC", item.out.departure),
+    bookingLinkForLeg(item.ret.source, "ALC", item.ret.destination, item.ret.departure),
+  ];
+}
+
+function bookingLinksHtml(links, size) {
+  const cls = size === "small" ? "book-link small" : "book-link";
+  return links.map(l => `<a class="${cls}${l.muted ? " muted" : ""}" href="${l.url}" ` +
+    `target="_blank" rel="noopener" ${l.title ? `title="${l.title.replace(/"/g, "&quot;")}"` : ""}>` +
+    `${l.label} ↗</a>`).join("");
+}
+
 // ---------- favourites ----------
 
 const favKeyOf = f => [f.kind, f.out_origin, f.out_destination, f.out_departure,
@@ -320,6 +393,17 @@ function renderFavs() {
       delta = `<span class="delta ${down ? "down" : "up"}">${down ? "▼" : "▲"} ${
         fmtEUR(Math.abs(f.delta))}</span>`;
     }
+    const isTrip = f.legs.length === 2;
+    const bookItem = isTrip
+      ? { package: !!f.package,
+          out: { origin: f.legs[0].origin, destination: f.legs[0].destination,
+                 departure: f.legs[0].departure, source: f.legs[0].source },
+          ret: { origin: f.legs[1].origin, destination: f.legs[1].destination,
+                 departure: f.legs[1].departure, source: f.legs[1].source } }
+      : { origin: f.legs[0].origin, destination: f.legs[0].destination,
+          departure: f.legs[0].departure, source: f.legs[0].source };
+    const bookHtml = bookingLinksHtml(bookingLinksFor(bookItem, isTrip), "small");
+
     el.innerHTML = `
       <button class="rm" title="Quitar">✕</button>
       <h3>${f.legs[0].origin} → ${f.legs[0].destination}${
@@ -328,7 +412,8 @@ function renderFavs() {
         f.created_at.slice(0, 10)}</div>
       ${legs}
       <div class="total"><span style="color:var(--ink-2);font-size:12.5px">total ahora</span>
-        <span><span class="v">${f.price_now != null ? fmtEUR(f.price_now) : "—"}</span> ${delta}</span></div>`;
+        <span><span class="v">${f.price_now != null ? fmtEUR(f.price_now) : "—"}</span> ${delta}</span></div>
+      <div class="book-links">${bookHtml}</div>`;
     el.querySelector(".rm").addEventListener("click", () => toggleFav({
       kind: f.kind, out_origin: f.out_origin, out_destination: f.out_destination,
       out_departure: f.out_departure, ret_origin: f.ret_origin,
@@ -593,6 +678,7 @@ async function selectFlight(f) {
   render();
   openDetail(`${f.origin} → ${f.destination} · ${fmtDep(f.departure)}`,
     `${f.airline || "?"} · ${stopsES(f.stops)} · ${fmtEUR(f.price)} · evolución del precio`, false);
+  $("dBook").innerHTML = bookingLinksHtml(bookingLinksFor(f, false));
   drawChart([{ pts: await fetchHistory(f.origin, f.destination, f.departure),
                color: "--series-1", name: "precio" }]);
 }
@@ -604,6 +690,7 @@ async function selectTrip(t) {
     `${t.out.origin} → ALC → ${t.ret.destination} · ${t.nights} noches`,
     `Ida ${fmtDep(t.out.departure)} (${t.out.airline || "?"}) · vuelta ${fmtDep(t.ret.departure)} ` +
     `(${t.ret.airline || "?"}) · total ${fmtEUR(t.price)}`, true);
+  $("dBook").innerHTML = bookingLinksHtml(bookingLinksFor(t, true));
   const [o, r] = await Promise.all([
     fetchHistory(t.out.origin, "ALC", t.out.departure),
     fetchHistory("ALC", t.ret.destination, t.ret.departure),
@@ -779,9 +866,22 @@ function tripCard(fav) {
       when = fmtDep(fav.out_departure);
     }
   } catch { when = fav.out_departure; }
+  const bookItem = round
+    ? { package: pkg,
+        out: { origin: fav.out_origin, destination: fav.out_destination, departure: fav.out_departure },
+        ret: { origin: fav.ret_origin, destination: fav.ret_destination, departure: fav.ret_departure } }
+    : { origin: fav.out_origin, destination: fav.out_destination, departure: fav.out_departure };
+  // The model doesn't know which provider quoted it, so trip/flight markers
+  // fall back to a Google Flights search — bookingLinkForLeg does this for
+  // any source it doesn't recognise. Luxair packages still get their own link.
+  const bookHtml = bookingLinksHtml(bookingLinksFor(bookItem, round), "small");
+
   el.innerHTML = `<div class="r">${title}</div><div class="d">${when}</div>
-    <div class="act"><button class="${on ? "on" : ""}">${on ? "★ Guardado" : "☆ Guardar"}</button></div>`;
-  el.querySelector("button").addEventListener("click", () => toggleFav(fav));
+    <div class="act">
+      <button class="${on ? "on" : ""}">${on ? "★ Guardado" : "☆ Guardar"}</button>
+      ${bookHtml}
+    </div>`;
+  el.querySelector(".act button").addEventListener("click", () => toggleFav(fav));
   return el;
 }
 
@@ -1036,7 +1136,9 @@ function alertRow(m) {
     `${alertDay(m.ret.departure)}${alertTime(m.ret)} · ${m.nights}n · ` +
     `${m.out.airline}${m.package ? " (paq.)" : ""}</span>` +
     off +
-    `<span class="price">${fmtEUR(m.price)}</span>`;
+    `<span class="price">${fmtEUR(m.price)}</span>` +
+    bookingLinksHtml(bookingLinksFor(m, true), "small");
+  el.querySelectorAll(".book-link").forEach(a => a.addEventListener("click", e => e.stopPropagation()));
   el.addEventListener("click", () => {
     // Jump to the trip list narrowed around this match.
     $("fAirport").value = m.out.origin === "ALC" ? "" : m.out.origin;

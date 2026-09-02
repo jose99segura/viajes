@@ -263,7 +263,7 @@ def current_price(
     can list the same departure, so take the best of them, not an arbitrary
     row — otherwise a saved trip appears to jump in price."""
     return conn.execute(
-        """SELECT price, currency, airline, stops, captured_at FROM fares
+        """SELECT price, currency, airline, stops, source, captured_at FROM fares
            WHERE origin = ? AND destination = ? AND departure = ?
              AND captured_at = (
                SELECT MAX(captured_at) FROM fares

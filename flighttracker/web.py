@@ -175,7 +175,7 @@ def favorites():
                 fav["legs"] = [{
                     "origin": r["out_origin"], "destination": r["out_destination"],
                     "departure": r["out_departure"], "date_only": True,
-                    "airline": "Luxair", "stops": 0,
+                    "airline": "Luxair", "stops": 0, "source": "luxair",
                     "price": now["price"] if now else None,
                     "low": ext["lo"] if ext else None,
                     "high": ext["hi"] if ext else None,
@@ -183,7 +183,7 @@ def favorites():
                 }, {
                     "origin": r["out_destination"], "destination": r["out_origin"],
                     "departure": r["ret_departure"], "date_only": True,
-                    "airline": "Luxair", "stops": 0, "price": None,
+                    "airline": "Luxair", "stops": 0, "source": "luxair", "price": None,
                     "low": None, "high": None, "adjustment": 0, "label": "",
                 }]
                 fav["price_now"] = now["price"] if now else None
@@ -211,6 +211,7 @@ def favorites():
                     "origin": origin, "destination": dest, "departure": dep,
                     "airline": now["airline"] if now else None,
                     "stops": now["stops"] if now else 0,
+                    "source": now["source"] if now else None,
                     "price": price,
                     "low": ext["lo"] if ext else None,
                     "high": ext["hi"] if ext else None,
