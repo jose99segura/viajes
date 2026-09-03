@@ -1,5 +1,10 @@
 requests>=2.31
 PyYAML>=6.0
+# Postgres driver for the fetcher and scripts/import_sqlite.py.
+# pg8000 is pure Python on purpose: psycopg needs libpq, and psycopg-binary
+# has no Windows ARM64 wheel, so the fetcher would become container-only on
+# this dev machine. Same reasoning that keeps `cryptography` out (see below).
+pg8000>=1.31
 tabulate>=0.9
 flask>=3.0
 # The chat assistant uses Gemini over its REST API (only `requests` needed —
