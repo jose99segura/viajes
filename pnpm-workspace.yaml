@@ -1,0 +1,14 @@
+# pnpm 11 refuses to run a dependency's install script unless it is listed
+# here, and treats an unapproved one as a hard error rather than a warning.
+#
+# - esbuild: fetches its platform binary. drizzle-kit and vitest both depend
+#   on it, so without this every `db:generate` and every test run fails.
+# - unrs-resolver: native module pulled in by eslint-config-next. It only
+#   installs on Linux, so this one shows up in the Docker build rather than
+#   on the Windows dev machine.
+#
+# Enumerate packages rather than using `dangerouslyAllowAllBuilds`: that flag
+# lets any dependency in the tree run arbitrary code at install time.
+allowBuilds:
+  esbuild: true
+  unrs-resolver: true

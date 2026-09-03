@@ -1,0 +1,40 @@
+# Without this file, `COPY . .` in the builder stage copies the HOST's
+# node_modules over the Linux one installed in the deps stage. On a Windows
+# host that means native binaries for the wrong platform and a confusing
+# failure before `pnpm build` even starts.
+node_modules
+.pnpm-store
+
+# Build output — regenerated inside the image, and stale copies confuse the
+# standalone output.
+.next
+out
+build
+
+# Never send secrets into the build context. They would end up in image
+# layers even if later deleted.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# The SQLite history file: 400 KB of build context that the image never uses.
+prices.db
+
+# Noise that only invalidates the Docker cache
+.git
+.github
+.vscode
+.idea
+*.log
+__pycache__
+*.pyc
+.DS_Store
+Thumbs.db
+
+# Not needed at runtime
+README.md
+CLAUDE.md
+MIGRATION.md
+docs

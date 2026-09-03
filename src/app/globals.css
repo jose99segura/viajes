@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/**
+ * Placeholder tokens. The real port of the Flask dashboard's app.css — 728
+ * lines of design tokens, app shell and components, with the light/dark/system
+ * theme — lands with the UI step.
+ */
+body {
+  margin: 0;
+}

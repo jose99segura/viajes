@@ -1,4 +1,41 @@
-.env
-prices.db
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+.pnpm-debug.log*
+
+# env files
+.env*
+!.env.example
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Python leftovers from the Flask era; the fetcher still lives here.
 __pycache__/
 *.pyc
+
+# The SQLite history file the Postgres import reads from. Kept locally until
+# the import is verified, never committed.
+prices.db
+
+# Local dev server output
+dev.log

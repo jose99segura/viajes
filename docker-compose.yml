@@ -1,0 +1,35 @@
+# Local development only. Production uses docker-compose.coolify.yml, which
+# has no database of its own and points at the shared Postgres on the VPS.
+#
+# The image matches production exactly (pgvector/pgvector:pg18) so that
+# anything working locally behaves the same deployed.
+#
+# Host port 5546 rather than 5432: this machine runs several project
+# databases at once and the low ports are already taken. Inside the container
+# it is the ordinary 5432.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: viajes_dev_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: viajes
+      POSTGRES_PASSWORD: viajes
+      POSTGRES_DB: viajes
+    ports:
+      - "5546:5432"
+    volumes:
+      # pg18 refuses to start with the volume on /var/lib/postgresql/data:
+      # it now keeps the cluster in a version-named subdirectory so that
+      # `pg_upgrade --link` does not have to cross a mount boundary. Mount the
+      # parent and let the image place the data.
+      - viajes_dev_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U viajes"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  viajes_dev_pgdata:
