@@ -1,10 +1,21 @@
 @import "tailwindcss";
 
 /**
- * Placeholder tokens. The real port of the Flask dashboard's app.css — 728
- * lines of design tokens, app shell and components, with the light/dark/system
- * theme — lands with the UI step.
+ * Placeholder. The real port of the Flask dashboard's app.css — 728 lines of
+ * design tokens, app shell and components, with the light/dark/system theme
+ * applied before first paint — lands with the UI step.
+ *
+ * Until then this pins a light scheme explicitly. Tailwind's preflight sets
+ * no background or colour of its own, so on a browser in dark mode the page
+ * renders near-black text on the browser's near-black canvas.
  */
+:root {
+  color-scheme: light;
+}
+
 body {
   margin: 0;
+  background: #ffffff;
+  color: #16232e;
+  font-family: ui-sans-serif, system-ui, sans-serif;
 }
