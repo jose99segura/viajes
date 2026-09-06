@@ -39,6 +39,25 @@ class Scoring:
     weekend_bonus: float
     before_hour: time
     early_penalty: float
+    late_hour: time
+    late_arrival_penalty: float
+    day_off_cost: float
+
+
+@dataclasses.dataclass
+class Airport:
+    """What it takes to reach one of the home airports by car, one way."""
+    km: float
+    drive_minutes: float
+    parking_per_day: float
+
+
+@dataclasses.dataclass
+class Travel:
+    """Ground costs: the part of a trip the airline does not charge you for."""
+    eur_per_km: float
+    eur_per_hour: float
+    airports: dict[str, Airport]
 
 
 @dataclasses.dataclass
@@ -59,6 +78,7 @@ class Config:
     months_ahead: int
     currency: str
     scoring: Scoring
+    travel: Travel
     google: GoogleSampling
     luxair: LuxairSampling
 
@@ -73,6 +93,7 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
     s = raw["scoring"]
     g = raw.get("google", {})
     lx = raw.get("luxair", {})
+    tr = raw.get("travel", {})
     return Config(
         google=GoogleSampling(
             weeks=int(g.get("weeks", 6)),
@@ -81,6 +102,18 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         luxair=LuxairSampling(
             routes=[tuple(r) for r in lx.get("routes", [])],
             nights=list(lx.get("nights", [3, 7, 14])),
+        ),
+        travel=Travel(
+            eur_per_km=float(tr.get("eur_per_km", 0.0)),
+            eur_per_hour=float(tr.get("eur_per_hour", 0.0)),
+            airports={
+                code.upper(): Airport(
+                    km=float(a.get("km", 0)),
+                    drive_minutes=float(a.get("drive_minutes", 0)),
+                    parking_per_day=float(a.get("parking_per_day", 0)),
+                )
+                for code, a in (tr.get("airports") or {}).items()
+            },
         ),
         routes=raw["routes"],
         months_ahead=int(raw.get("months_ahead", 3)),
@@ -94,5 +127,8 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
             weekend_bonus=float(s["weekend_bonus"]),
             before_hour=_parse_time(s["before_hour"]),
             early_penalty=float(s["early_penalty"]),
+            late_hour=_parse_time(s.get("late_hour", "22:30")),
+            late_arrival_penalty=float(s.get("late_arrival_penalty", 0)),
+            day_off_cost=float(s.get("day_off_cost", 0)),
         ),
     )

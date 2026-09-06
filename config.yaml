@@ -35,6 +35,18 @@ luxair:
   # (see `python -m flighttracker luxair-durations`).
   nights: [3, 4, 5, 7, 10, 14]
 
+# Getting to the airport. You drive, so a cheap fare from a far airport is not
+# actually cheap: fuel, wear, tolls, parking and the hours at the wheel are all
+# part of the price. Distances and times are from home, one way.
+travel:
+  eur_per_km: 0.22     # fuel + wear + tolls
+  eur_per_hour: 12     # what an hour at the wheel is worth to you
+  airports:
+    LUX: {km: 8,   drive_minutes: 15,  parking_per_day: 7}
+    SCN: {km: 95,  drive_minutes: 70,  parking_per_day: 4}
+    HHN: {km: 155, drive_minutes: 105, parking_per_day: 5}
+    CRL: {km: 200, drive_minutes: 135, parking_per_day: 7}
+
 # Convenience scoring: we convert "inconvenience" into euros and add it to the
 # ticket price to get an *effective cost*. Lower effective cost = better deal
 # for your life, not just your wallet.
@@ -53,3 +65,11 @@ scoring:
   # Very early red-eyes are painful even on weekends
   before_hour: "06:30"
   early_penalty: 15
+  # Landing back near Luxembourg at night means driving home in the small
+  # hours. Only counted at the home end: a midnight landing in Alicante is free.
+  late_hour: "22:30"
+  late_arrival_penalty: 25
+  # What a day of holiday is worth to you. Charged for every Mon-Fri day the
+  # trip eats *beyond the departure day* -- that one is already priced by the
+  # penalties above, and charging both would bill the same day twice.
+  day_off_cost: 45
