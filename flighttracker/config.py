@@ -9,22 +9,28 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
-DB_PATH = ROOT / "prices.db"
-ENV_PATH = ROOT / ".env"
+# Read in this order, first definition wins: the real environment, then
+# .env, then .env.local. Next.js reads the same two files, so one
+# DATABASE_URL in either serves both the dashboard and the fetcher.
+ENV_PATHS = (ROOT / ".env", ROOT / ".env.local")
+# The database is Postgres now; the connection string comes from
+# DATABASE_URL. prices.db survives only as the import source for
+# scripts/import_sqlite.py.
 
 
-def load_env(path: Path = ENV_PATH) -> None:
-    """Load KEY=VALUE lines from .env into os.environ (real env wins)."""
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+def load_env(paths: tuple[Path, ...] = ENV_PATHS) -> None:
+    """Load KEY=VALUE lines from the env files into os.environ (real env wins)."""
+    for path in paths:
+        if not path.exists():
             continue
-        key, _, value = line.partition("=")
-        key, value = key.strip(), value.strip().strip("'\"")
-        if key and value and key not in os.environ:
-            os.environ[key] = value
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip().strip("'\"")
+            if key and value and key not in os.environ:
+                os.environ[key] = value
 
 
 @dataclasses.dataclass

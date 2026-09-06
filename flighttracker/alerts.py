@@ -2,8 +2,6 @@
 snapshot after every fetch, remembering which matches are new."""
 from __future__ import annotations
 
-import sqlite3
-
 from . import db
 from .config import Config
 from .trips import TripFilter, build_trips, trip_key
@@ -25,7 +23,7 @@ DEFAULT_ALERTS = [
 ]
 
 
-def seed_defaults(conn: sqlite3.Connection) -> bool:
+def seed_defaults(conn: db.Connection) -> bool:
     if db.list_alerts(conn):
         return False
     for a in DEFAULT_ALERTS:
@@ -33,7 +31,7 @@ def seed_defaults(conn: sqlite3.Connection) -> bool:
     return True
 
 
-def filter_for(alert: sqlite3.Row | dict) -> TripFilter:
+def filter_for(alert: db.Row | dict) -> TripFilter:
     return TripFilter(
         min_nights=int(alert["min_nights"] or 1),
         max_nights=int(alert["max_nights"] or 21),
@@ -44,7 +42,7 @@ def filter_for(alert: sqlite3.Row | dict) -> TripFilter:
     )
 
 
-def evaluate(cfg: Config, conn: sqlite3.Connection | None = None,
+def evaluate(cfg: Config, conn: db.Connection | None = None,
              record: bool = True) -> list[dict]:
     """Run every enabled alert. With record=True (a fetch) hits are stored so
     the next run can tell what is new; with record=False (the UI) the stored
