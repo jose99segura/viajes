@@ -11,7 +11,9 @@ from datetime import date, datetime, timedelta
 
 from . import db
 from .config import Config
-from .scoring import convenience_adjustment, day_adjustment, work_days_used
+from .scoring import (airport_ground, arrival_adjustment,
+                      convenience_adjustment, day_adjustment, days_off_cost,
+                      trip_ground, work_days_used)
 
 
 @dataclasses.dataclass
@@ -48,6 +50,13 @@ def trip_key(combo: dict) -> str:
     ])
 
 
+def _parse_dt(value) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def build_trips(cfg: Config, f: TripFilter) -> tuple[list[dict], str | None]:
     """All pairings that pass the filter, cheapest-effective first, plus the
     timestamp of the most recent capture they were built from."""
@@ -65,10 +74,15 @@ def build_trips(cfg: Config, f: TripFilter) -> tuple[list[dict], str | None]:
         except ValueError:
             continue
         adj, label = convenience_adjustment(dep, cfg.scoring)
+        arr_adj, arr_label = arrival_adjustment(
+            _parse_dt(r["arrival"]), r["destination"] != "ALC", cfg.scoring)
+        if arr_label:
+            adj += arr_adj
+            label = f"{label}, {arr_label}"
         leg = {
             "origin": r["origin"], "destination": r["destination"],
-            "departure": r["departure"], "airline": r["airline"],
-            "stops": r["stops"],
+            "departure": r["departure"], "arrival": r["arrival"],
+            "airline": r["airline"], "stops": r["stops"],
             "price": r["price"], "adjustment": adj, "label": label,
             "source": r["source"], "_dep": dep,
         }
@@ -103,6 +117,11 @@ def build_trips(cfg: Config, f: TripFilter) -> tuple[list[dict], str | None]:
             days_off = work_days_used(out["_dep"], ret["_dep"], cfg.scoring)
             if f.max_days_off is not None and days_off > f.max_days_off:
                 continue
+            adjustment = out["adjustment"] + ret["adjustment"]
+            ground, ground_label = trip_ground(
+                out["origin"], ret["destination"], nights, cfg.travel)
+            holiday, holiday_label = days_off_cost(
+                days_off, out["_dep"], cfg.scoring)
             combos.append({
                 "out": {k: v for k, v in out.items() if k != "_dep"},
                 "ret": {k: v for k, v in ret.items() if k != "_dep"},
@@ -110,8 +129,12 @@ def build_trips(cfg: Config, f: TripFilter) -> tuple[list[dict], str | None]:
                 "days_off": days_off,
                 "same_airport": out["origin"] == ret["destination"],
                 "price": round(price, 2),
-                "adjustment": out["adjustment"] + ret["adjustment"],
-                "effective": round(price + out["adjustment"] + ret["adjustment"], 2),
+                "adjustment": adjustment,
+                "ground": ground,
+                "ground_label": ground_label,
+                "holiday": holiday,
+                "holiday_label": holiday_label,
+                "effective": round(price + adjustment + ground + holiday, 2),
             })
 
     combos.extend(_package_combos(packages, cfg, f))
@@ -147,6 +170,9 @@ def _package_combos(packages, cfg: Config, f: TripFilter) -> list[dict]:
         days_off = work_days_used(out_dt, ret_dt, cfg.scoring, True, True)
         if f.max_days_off is not None and days_off > f.max_days_off:
             continue
+        home = r["destination"] if r["origin"] == "ALC" else r["origin"]
+        ground, ground_label = airport_ground(home, cfg.travel, r["nights"])
+        holiday, holiday_label = days_off_cost(days_off, out_dt, cfg.scoring, True)
         out.append({
             "out": {
                 "origin": r["origin"], "destination": r["destination"],
@@ -166,6 +192,10 @@ def _package_combos(packages, cfg: Config, f: TripFilter) -> list[dict]:
             "package": True,
             "price": r["price"],
             "adjustment": out_adj + ret_adj,
-            "effective": round(r["price"] + out_adj + ret_adj, 2),
+            "ground": ground,
+            "ground_label": ground_label,
+            "holiday": holiday,
+            "holiday_label": holiday_label,
+            "effective": round(r["price"] + out_adj + ret_adj + ground + holiday, 2),
         })
     return out

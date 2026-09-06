@@ -72,14 +72,16 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
+  -webkit-tap-highlight-color: transparent;
   background: var(--page);
   color: var(--ink);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-button, input, select { font: inherit; color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ============================================================
    App shell — collapsible sidebar + topbar + content
@@ -89,6 +91,8 @@ button, input, select { font: inherit; color: inherit; }
   --sidebar-w: 220px;
   --sidebar-w-collapsed: 60px;
   --topbar-h: 56px;
+  --bottomnav-h: 60px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
 }
 
 .shell { display: flex; min-height: 100%; }
@@ -256,6 +260,15 @@ body.nav-collapsed .foot button { position: relative; }
   outline-offset: -1px;
 }
 .field input.narrow { min-width: 62px; width: 62px; }
+/* Sorting lives in the table header on a wide screen; the phone layout has no
+   header row, so this stand-in only shows up there. */
+#lSort { display: none; }
+.sortwrap { display: flex; gap: 6px; }
+.sortwrap select { flex: 1; min-width: 0; }
+.sortwrap button {
+  flex: none; width: 44px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--page); color: var(--ink-2); cursor: pointer;
+}
 .nights { display: flex; gap: 5px; align-items: center; }
 .nights span { color: var(--muted); }
 .toggle {
@@ -434,7 +447,7 @@ th.starcol, td.starcol { width: 34px; padding-left: 10px; padding-right: 0; }
 .legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: 12.5px; color: var(--ink-2); }
 .legend .item { display: flex; align-items: center; gap: 6px; }
 .legend .swatch { width: 10px; height: 10px; border-radius: 3px; }
-#chart { width: 100%; height: 220px; display: block; }
+#chart { width: 100%; height: auto; display: block; touch-action: pan-y; }
 .tooltip {
   position: fixed; pointer-events: none; z-index: 60; display: none;
   background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
@@ -539,6 +552,8 @@ th.starcol, td.starcol { width: 34px; padding-left: 10px; padding-right: 0; }
   margin: 38px 0 10px; padding-top: 20px; border-top: 1px solid var(--grid);
 }
 .doc h3 { font-size: 14.5px; font-weight: 620; margin: 22px 0 6px; }
+/* Anchor jumps must clear the sticky topbar. */
+.doc h2, .doc h3 { scroll-margin-top: calc(var(--topbar-h) + 10px); }
 .doc p { line-height: 1.65; margin: 0 0 12px; color: var(--ink-2); }
 .doc li { line-height: 1.6; margin-bottom: 6px; color: var(--ink-2); }
 .doc ul { padding-left: 20px; margin: 0 0 14px; }
@@ -591,26 +606,6 @@ th.starcol, td.starcol { width: 34px; padding-left: 10px; padding-right: 0; }
 }
 .toc ol { margin: 0; padding-left: 20px; }
 .toc li { margin-bottom: 3px; font-size: 13px; }
-
-/* ============================================================
-   Narrow screens
-   ============================================================ */
-
-/* The chat panel stops splitting the layout and floats over it instead. */
-@media (max-width: 1000px) {
-  .chat {
-    position: fixed; top: 0; right: 0; bottom: 0;
-    box-shadow: -8px 0 32px rgba(0,0,0,0.28);
-  }
-}
-
-@media (max-width: 700px) {
-  .content { padding: 16px 14px 44px; }
-  .topbar { padding: 0 14px; gap: 10px; }
-  .topbar .meta { display: none; }
-  .icon-btn span:not(:first-child) { display: none; }
-  .chat { width: 100%; }
-}
 
 /* ============================================================
    Alerts
@@ -690,6 +685,7 @@ th.starcol, td.starcol { width: 34px; padding-left: 10px; padding-right: 0; }
 .view-toggle button {
   border: none; background: none; padding: 4px 10px; border-radius: 6px;
   font-size: 11.5px; color: var(--ink-2); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
 }
 .view-toggle button.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
 .view-toggle button:hover:not(.active) { color: var(--ink); }
@@ -725,4 +721,257 @@ th.starcol, td.starcol { width: 34px; padding-left: 10px; padding-right: 0; }
 }
 .book-link.small {
   padding: 2px 8px; font-size: 11px; border-radius: 6px; gap: 4px;
+}
+
+/* ============================================================
+   Narrow screens
+   ============================================================ */
+
+/* The chat panel stops splitting the layout and floats over it instead.
+   While closed it must stay 0-wide: it is fixed and full-height here, so any
+   width would leave an invisible sheet swallowing every tap on the page. */
+@media (max-width: 1000px) {
+  .chat {
+    position: fixed; top: 0; right: 0; bottom: 0; height: 100dvh;
+    box-shadow: -8px 0 32px rgba(0,0,0,0.28);
+  }
+  .chat:not(.open) {
+    width: 0; border-left-color: transparent;
+    box-shadow: none; pointer-events: none;
+  }
+}
+
+/* ------------------------------------------------------------
+   Phones: the sidebar becomes a bottom tab bar, the table becomes
+   cards, and every control grows to a thumb-sized target.
+   ------------------------------------------------------------ */
+@media (max-width: 760px) {
+  :root { --topbar-h: 52px; }
+
+  .shell { display: block; }
+  .main { display: block; }
+
+  /* ---------- bottom tab bar ---------- */
+  .sidebar, body.nav-collapsed .sidebar {
+    position: fixed; inset: auto 0 0 0; top: auto;
+    width: 100%; flex-basis: auto; height: auto;
+    flex-direction: row; align-items: stretch;
+    border-right: none; border-top: 1px solid var(--border);
+    padding-bottom: var(--safe-b);
+    transition: none; z-index: 40;
+  }
+  .sidebar .brand, .sidebar .foot, .sidebar .nav .group,
+  body.nav-collapsed .sidebar .nav .group { display: none; }
+  .sidebar .nav, body.nav-collapsed .sidebar .nav {
+    flex-direction: row; width: 100%; padding: 5px 2px 4px; gap: 0;
+  }
+  .sidebar .nav a, .sidebar .nav button,
+  body.nav-collapsed .sidebar .nav a, body.nav-collapsed .sidebar .nav button {
+    position: relative;
+    flex: 1 1 0; min-width: 0; width: auto;
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; padding: 5px 2px; border-radius: 10px;
+    font-size: 10px; text-align: center; min-height: 50px;
+  }
+  .sidebar .nav .ico, body.nav-collapsed .sidebar .nav .ico { font-size: 17px; }
+  .sidebar .nav .label,
+  body.nav-collapsed .sidebar .nav .label {
+    display: block; font-size: 10px; line-height: 1.15;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sidebar .nav .active { background: none; color: var(--accent); font-weight: 600; }
+  /* Unread counts ride on the icon instead of sitting at the end of a row. */
+  .sidebar .nav .badge-count,
+  body.nav-collapsed .sidebar .nav .badge-count {
+    display: block; position: absolute; top: 2px; left: 50%; margin-left: 4px;
+    background: var(--accent); color: #fff;
+    font-size: 9px; font-weight: 700; line-height: 15px;
+    min-width: 15px; padding: 0 4px; border-radius: 999px; text-align: center;
+  }
+  .sidebar .nav .badge-count:empty { display: none; }
+  /* Hover tooltips never fire on touch — the labels say it all now. */
+  body.nav-collapsed .sidebar .nav a[data-tip]:hover::after,
+  body.nav-collapsed .sidebar .nav button[data-tip]:hover::after,
+  body.nav-collapsed .foot button[data-tip]:hover::after { content: none; }
+
+  /* ---------- topbar ---------- */
+  .topbar { position: sticky; padding: 0 12px; gap: 8px; }
+  .topbar h1 {
+    font-size: 15px; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .topbar .meta { display: none; }
+  .icon-btn { padding: 8px 10px; min-height: 40px; }
+  .icon-btn span:not(:first-child) { display: none; }
+  .menu button { padding: 10px 11px; }
+
+  /* Room for the tab bar under everything that scrolls. */
+  .content { padding: 14px 12px calc(var(--bottomnav-h) + var(--safe-b) + 24px); }
+  body.chat-open { overflow: hidden; }
+
+  /* ---------- tiles ---------- */
+  .tiles { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 14px; }
+  .tile { padding: 11px 12px; border-radius: 10px; }
+  .tile:nth-child(3) { grid-column: 1 / -1; }
+  .tile .k { font-size: 10px; margin-bottom: 4px; }
+  .tile .v { font-size: 21px; }
+  .tile .d { font-size: 11.5px; margin-top: 3px; }
+
+  /* ---------- filters ---------- */
+  .toolbar { padding: 11px; gap: 10px; border-radius: 10px; }
+  .toolbar .field, .alert-form .field { flex: 1 1 calc(50% - 5px); min-width: 0; }
+  .field select, .field input[type=number], .field input[type=text] {
+    width: 100%; min-width: 0; padding: 9px 10px;
+    font-size: 16px;                    /* stops iOS zooming in on focus */
+  }
+  .field input.narrow { width: 100%; min-width: 0; }
+  .nights { width: 100%; }
+  #lSort { display: flex; }
+  .toolbar .grow { display: none; }
+  .toggle { flex: 1 1 calc(50% - 5px); justify-content: center; padding: 11px 10px; }
+  .toolbar .count { flex: 1 1 100%; padding-bottom: 0; }
+
+  /* ---------- table becomes cards ---------- */
+  #tableView { background: none; border: none; border-radius: 0; overflow: visible; }
+  .tablewrap { overflow: visible; }
+  #tbl, #tbl tbody, #tbl tr, #tbl td { display: block; width: auto; }
+  #tbl thead { display: none; }
+  #tbl tbody tr {
+    position: relative; margin-bottom: 10px; padding: 9px 12px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  }
+  #tbl tbody tr:hover { background: var(--surface); }
+  #tbl tbody tr.selected { background: var(--selected); border-color: var(--accent); }
+  #tbl td {
+    border: none; padding: 3px 0; white-space: normal;
+    display: flex; align-items: baseline; justify-content: flex-end; gap: 8px;
+  }
+  /* margin-right:auto keeps every part of a multi-piece value (price + badge)
+     together on the right instead of spreading it across the card. */
+  #tbl td::before {
+    content: attr(data-t); flex: 0 0 auto; margin-right: auto;
+    color: var(--muted); font-size: 10.5px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  /* First cell of each card leaves room for the star in the corner. */
+  #tbl td:nth-child(2) { padding-right: 32px; }
+  #tbl td.num { text-align: right; }
+  #tbl td .leg, #tbl td .when { align-items: flex-end; text-align: right; }
+  #tbl td .badges { justify-content: flex-end; }
+  /* The star floats in the card corner; a label for it would be noise. */
+  #tbl td.starcol {
+    position: absolute; top: 4px; right: 4px;
+    width: auto; padding: 0; display: block;
+  }
+  #tbl td.starcol::before { content: none; }
+  #tbl td.empty-row { padding: 26px 0; text-align: center; }
+  #tbl td.empty-row::before { content: none; }
+  .star { padding: 7px 9px; font-size: 17px; }
+
+  .pager {
+    flex-direction: column; align-items: stretch;
+    gap: 8px; padding: 2px 0 0; border-top: none;
+  }
+  .pager .info { text-align: center; }
+  .pager .btns { flex-wrap: wrap; justify-content: center; gap: 4px; }
+  .pager button { min-width: 40px; min-height: 40px; }
+
+  /* ---------- detail + chart ---------- */
+  .detail .card { padding: 14px 12px; }
+  .detail .close { top: 8px; right: 8px; padding: 8px 10px; }
+  .detail h2 { font-size: 14.5px; padding-right: 34px; }
+  .detail .meta { font-size: 12px; margin-bottom: 10px; }
+  .book-link { padding: 9px 13px; font-size: 13px; }
+
+  /* ---------- calendar ---------- */
+  .cal-head { flex-wrap: wrap; gap: 8px 10px; }
+  .cal-head h2 { flex: 1 1 100%; font-size: 14px; }
+  .cal-head .nav button { min-width: 46px; min-height: 38px; }
+  .cal-head .grow { display: none; }
+  .cal-legend { margin-left: auto; gap: 7px; font-size: 11px; }
+  .cal-months { grid-template-columns: 1fr; gap: 12px; }
+  .month { padding: 12px 10px; }
+  .days, .dow { gap: 2px; }
+  .days .day { aspect-ratio: 1 / 0.95; border-radius: 6px; padding: 3px 1px 2px; }
+  .days .day .p { font-size: 9px; }
+
+  /* ---------- favourites ---------- */
+  .fav-grid { grid-template-columns: 1fr; }
+  .fav { padding: 14px 13px; }
+  .fav .rm { top: 8px; right: 8px; padding: 7px 9px; }
+  .fav h3 { padding-right: 30px; }
+
+  /* ---------- alerts ---------- */
+  .alerts-bar { flex-wrap: wrap; gap: 10px; }
+  .alerts-bar p { flex: 1 1 100%; order: 2; }
+  .alerts-bar .icon-btn { order: 1; }
+  .alerts-bar .icon-btn span:not(:first-child) { display: inline; }
+  .alert-head { flex-wrap: wrap; gap: 8px; padding: 12px; }
+  .alert-head > div:first-child { flex: 1 1 100%; }
+  .alert-head .grow { display: none; }
+  .alert-head .view-toggle { margin-right: auto; }
+  .alert-head button { min-width: 36px; min-height: 36px; }
+  /* Icons only, so the pills, the toggle and the three actions share one row. */
+  .view-toggle button { padding: 8px 11px; font-size: 13px; }
+  .view-toggle button span:not(:first-child) { display: none; }
+  .alert-row { flex-wrap: wrap; gap: 5px 8px; padding: 11px 12px; }
+  .alert-row .route { flex: 0 1 auto; min-width: 0; }
+  .alert-row .price { margin-left: auto; min-width: 0; }
+  .alert-row .dates { flex: 1 1 100%; font-size: 12px; }
+  .alert-row .book-links { flex: 1 1 100%; margin: 2px 0 0; }
+  .alert-form { padding: 12px; gap: 10px; }
+  .alert-form .actions { margin-left: 0; width: 100%; }
+  .alert-form .actions button { flex: 1; min-height: 42px; }
+  .alert-cal { grid-template-columns: 1fr; padding: 12px 10px; }
+
+  /* ---------- chat ---------- */
+  .chat.open { width: 100%; }
+  .chat-head { padding: 0 10px 0 14px; }
+  .chat-head button { min-width: 38px; min-height: 38px; }
+  .chat-log { padding: 14px; }
+  .chat-form { padding: 10px 12px calc(10px + var(--safe-b)); }
+  .chat-form textarea { font-size: 16px; min-height: 42px; }
+  .chat-form button { width: 42px; height: 42px; }
+  .suggestions button { padding: 11px 12px; }
+
+  /* ---------- documentation page ---------- */
+  .doc { padding: 20px 14px calc(var(--bottomnav-h) + var(--safe-b) + 32px); }
+  .doc h1 { font-size: 22px; }
+  .doc .lede { font-size: 14px; margin-bottom: 22px; }
+  .doc h2 { font-size: 16px; margin: 30px 0 8px; padding-top: 16px; }
+  .doc h3 { font-size: 14px; }
+  .doc .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .doc table { font-size: 12.5px; }
+  .doc th, .doc td { padding: 7px 9px; }
+  .doc pre { font-size: 11.5px; padding: 11px 12px; }
+  .figure { padding: 12px 10px; }
+  .toc { padding: 12px 14px; }
+  .footnote { font-size: 11.5px; }
+}
+
+/* Very small phones: two-up cells get too cramped, so go single column. */
+@media (max-width: 359px) {
+  .toolbar .field, .alert-form .field, .toggle { flex-basis: 100%; }
+  .tiles { grid-template-columns: 1fr; }
+  .tile:nth-child(3) { grid-column: auto; }
+  .sidebar .nav .label, body.nav-collapsed .sidebar .nav .label { font-size: 9px; }
+}
+
+/* ============================================================
+   Grouped rows — the best of a week, with its siblings folded in
+   ============================================================ */
+.more {
+  display: inline-block; margin-left: 6px; padding: 0 6px;
+  border-radius: 999px; border: 1px solid var(--border);
+  background: var(--neutral-bg); color: var(--ink-2);
+  font-size: 10.5px; font-weight: 600; line-height: 17px;
+  cursor: pointer; vertical-align: middle;
+}
+.more:hover { border-color: var(--accent); color: var(--accent); }
+#tbl tbody tr.child > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+#tbl tbody tr.child { background: var(--hover); }
+
+@media (max-width: 760px) {
+  #tbl tbody tr.child { margin-left: 14px; }
+  #tbl tbody tr.child > td:first-child { box-shadow: none; }
 }

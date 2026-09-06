@@ -41,7 +41,11 @@ function initShell() {
   // Only JS decides this, so the toggle always works at any width.
   let collapsed = document.documentElement.classList.contains("pre-collapsed");
   try {
-    if (localStorage.getItem("nav") === null) collapsed = window.innerWidth < 1180;
+    // Narrow desktop windows start collapsed; a touch device gets the labels,
+    // since the collapsed rail relies on hover tooltips to name its icons.
+    if (localStorage.getItem("nav") === null) {
+      collapsed = window.innerWidth < 1180 && matchMedia("(hover: hover)").matches;
+    }
   } catch (e) {}
   setNavCollapsed(collapsed);
   document.documentElement.classList.remove("pre-collapsed");

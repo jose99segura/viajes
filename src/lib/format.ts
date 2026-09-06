@@ -36,6 +36,7 @@ const LABELS_ES: Record<string, string> = {
   weekday: "entre semana",
   "work hours": "horario laboral",
   early: "madrugón",
+  "late arrival": "llegada de noche",
   friday: "viernes",
   ok: "ok",
 };
@@ -44,7 +45,7 @@ export const labelES = (label: string) =>
   label.split(", ").map((p) => LABELS_ES[p] ?? p).join(" · ");
 
 export function badgeClass(part: string): "good" | "warn" | "" {
-  if (part.includes("work hours")) return "warn";
+  if (part.includes("work hours") || part.includes("late arrival")) return "warn";
   if (part.includes("weekend") || part.includes("fri evening")) return "good";
   return "";
 }

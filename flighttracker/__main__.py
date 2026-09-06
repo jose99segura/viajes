@@ -10,7 +10,7 @@ from . import db
 from .config import load_config
 from . import alerts as alerts_mod
 from .providers import google, luxair, ryanair
-from .scoring import convenience_adjustment
+from .scoring import airport_ground, convenience_adjustment
 
 
 def cmd_fetch(args: argparse.Namespace) -> None:
@@ -71,10 +71,14 @@ def _fmt_trip(c: dict) -> str:
     def when(leg):
         d = leg["departure"]
         return d[:10] if leg.get("date_only") else d[:16].replace("T", " ")
+    # Show what the trip really costs, not just the fare: the alerts are
+    # ranked by effective cost, so printing the ticket alone reads as if the
+    # list were out of order.
     return (f"{c['out']['origin']}->ALC {when(c['out'])}  ->  "
             f"ALC->{c['ret']['destination']} {when(c['ret'])}  "
             f"{c['nights']}n  {c['days_off']} dias libres  "
-            f"{c['price']:.2f} EUR  ({c['out']['airline']})")
+            f"{c['price']:.2f} EUR billete  "
+            f"{c['effective']:.2f} EUR efectivo  ({c['out']['airline']})")
 
 
 def _print_alerts(results: list[dict], only_new: bool) -> None:
@@ -124,6 +128,8 @@ def cmd_report(args: argparse.Namespace) -> None:
         if args.max_price and r["price"] > args.max_price:
             continue
         adj, label = convenience_adjustment(dep, cfg.scoring)
+        home = (r["destination"] if r["destination"] != "ALC" else r["origin"])
+        ground, _ = airport_ground(home, cfg.travel)
         scored.append(
             {
                 "route": f"{r['origin']}->{r['destination']}",
@@ -131,7 +137,8 @@ def cmd_report(args: argparse.Namespace) -> None:
                 "airline": r["airline"] or "?",
                 "price": r["price"],
                 "adj": f"{adj:+.0f}",
-                "effective": r["price"] + adj,
+                "car": f"{ground:+.0f}",
+                "effective": r["price"] + adj + ground,
                 "when": label,
                 "source": r["source"],
                 "_dep": dep,
@@ -148,7 +155,7 @@ def cmd_report(args: argparse.Namespace) -> None:
         return
     print(tabulate(top, headers="keys", tablefmt="rounded_outline"))
     print(f"\n{len(scored)} future fares tracked. 'effective' = price + convenience "
-          f"adjustment ({cfg.currency}); lower is better.")
+          f"adjustment + driving to that airport ({cfg.currency}); lower is better.")
 
 
 def cmd_history(args: argparse.Namespace) -> None:

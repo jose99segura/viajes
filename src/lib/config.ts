@@ -30,6 +30,25 @@ export interface Scoring {
   weekendBonus: number;
   beforeHour: number;
   earlyPenalty: number;
+  /** Landing back home after this hour means a night drive. */
+  lateHour: number;
+  lateArrivalPenalty: number;
+  /** What a day of holiday is worth. */
+  dayOffCost: number;
+}
+
+/** What it takes to reach one of the home airports by car, one way. */
+export interface Airport {
+  km: number;
+  driveMinutes: number;
+  parkingPerDay: number;
+}
+
+/** Ground costs: the part of a trip the airline does not charge you for. */
+export interface Travel {
+  eurPerKm: number;
+  eurPerHour: number;
+  airports: Record<string, Airport>;
 }
 
 export interface GoogleSampling {
@@ -48,6 +67,7 @@ export interface Config {
   monthsAhead: number;
   currency: string;
   scoring: Scoring;
+  travel: Travel;
   google: GoogleSampling;
   luxair: LuxairSampling;
 }
@@ -62,6 +82,11 @@ type RawConfig = {
   months_ahead?: number;
   currency?: string;
   scoring: Record<string, string | number>;
+  travel?: {
+    eur_per_km?: number;
+    eur_per_hour?: number;
+    airports?: Record<string, { km?: number; drive_minutes?: number; parking_per_day?: number }>;
+  };
   google?: { weeks?: number; weekdays?: number[] };
   luxair?: { routes?: Array<[string, string]>; nights?: number[] };
 };
@@ -71,6 +96,15 @@ export function parseConfig(text: string): Config {
   const s = raw.scoring;
   const g = raw.google ?? {};
   const lx = raw.luxair ?? {};
+  const tr = raw.travel ?? {};
+  const airports: Record<string, Airport> = {};
+  for (const [code, a] of Object.entries(tr.airports ?? {})) {
+    airports[code.toUpperCase()] = {
+      km: Number(a.km ?? 0),
+      driveMinutes: Number(a.drive_minutes ?? 0),
+      parkingPerDay: Number(a.parking_per_day ?? 0),
+    };
+  }
   return {
     routes: raw.routes,
     // Same fallbacks as config.py, so a trimmed config.yaml means the same
@@ -86,6 +120,14 @@ export function parseConfig(text: string): Config {
       weekendBonus: Number(s.weekend_bonus),
       beforeHour: parseClock(String(s.before_hour)),
       earlyPenalty: Number(s.early_penalty),
+      lateHour: parseClock(String(s.late_hour ?? "22:30")),
+      lateArrivalPenalty: Number(s.late_arrival_penalty ?? 0),
+      dayOffCost: Number(s.day_off_cost ?? 0),
+    },
+    travel: {
+      eurPerKm: Number(tr.eur_per_km ?? 0),
+      eurPerHour: Number(tr.eur_per_hour ?? 0),
+      airports,
     },
     google: {
       weeks: Number(g.weeks ?? 6),

@@ -15,7 +15,8 @@ import requests
 
 from . import db
 from .config import Config, load_env
-from .scoring import convenience_adjustment, work_days_used
+from .scoring import (airport_ground, convenience_adjustment, days_off_cost,
+                      trip_ground, work_days_used)
 
 load_env()
 
@@ -35,8 +36,13 @@ flights, prices or dates. If the data cannot answer the question, say so and
 suggest running a fetch (`python -m flighttracker fetch --google`).
 
 Key concept: "effective cost" = ticket price + a convenience adjustment in euros
-that reflects how much a departure time disrupts a normal work week. A cheap
-flight that forces a day off work is not actually cheap.
+that reflects how much a departure time disrupts a normal work week + the cost of
+driving to that airport (fuel, tolls, hours at the wheel, parking while away).
++ what the holiday it eats is worth. A cheap flight that forces a day off work is
+not actually cheap, and neither is one that costs two hours of driving each way. The user drives to the airport, so
+LUX (20 minutes away) is worth a lot more than its ticket price suggests next to
+HHN or CRL. The "car" column below is that ground cost in euros; quote it when
+it is what decides between two options.
 
 Answer in Spanish.
 
@@ -104,6 +110,14 @@ def build_context(cfg: Config, max_trips: int = 60, max_legs: int = 60) -> str:
         f"Friday after {s.work_end}: -{s.friday_evening_bonus:.0f}",
         f"Saturday/Sunday: -{s.weekend_bonus:.0f}",
         f"before {s.before_hour}: +{s.early_penalty:.0f}",
+        f"landing back home after {s.late_hour} (night drive): "
+        f"+{s.late_arrival_penalty:.0f}",
+        "",
+        "# Driving to each airport (round trip from home, euros; parking extra)",
+        *[f"{code}: {a.drive_minutes:.0f} min each way, "
+          f"{airport_ground(code, cfg.travel)[0]:.0f} EUR of driving, "
+          f"{a.parking_per_day:.0f} EUR/day parking"
+          for code, a in sorted(cfg.travel.airports.items())],
         "",
         f"# Snapshot history: {captures['n']} captures, "
         f"from {captures['a']} to {captures['b']} (UTC)",
@@ -118,11 +132,14 @@ def build_context(cfg: Config, max_trips: int = 60, max_legs: int = 60) -> str:
         except ValueError:
             continue
         adj, label = convenience_adjustment(dep, s)
+        home = r["origin"] if r["destination"] == "ALC" else r["destination"]
+        ground, _ = airport_ground(home, cfg.travel)
         leg = {
             "origin": r["origin"], "destination": r["destination"],
-            "dep": dep, "departure": r["departure"],
+            "dep": dep, "departure": r["departure"], "home": home,
             "airline": r["airline"] or "?", "stops": r["stops"],
-            "price": r["price"], "effective": r["price"] + adj, "label": label,
+            "price": r["price"], "adj": adj, "ground": ground,
+            "effective": r["price"] + adj + ground, "label": label,
         }
         by_route[f"{r['origin']}->{r['destination']}"].append(r["price"])
         (outbound if r["destination"] == "ALC" else inbound).append(leg)
@@ -137,12 +154,13 @@ def build_context(cfg: Config, max_trips: int = 60, max_legs: int = 60) -> str:
     def render(legs: list[dict], title: str, limit: int) -> None:
         legs = sorted(legs, key=lambda x: x["effective"])[:limit]
         parts.append(f"# {title} (best {len(legs)} by effective cost)")
-        parts.append("route | departure | airline | stops | price | effective | when")
+        parts.append("route | departure | airline | stops | price | car | "
+                     "effective | when")
         for x in legs:
             parts.append(
                 f"{x['origin']}->{x['destination']} | {_fmt_dt(x['departure'])} | "
                 f"{x['airline']} | {x['stops']} | {x['price']:.2f} | "
-                f"{x['effective']:.2f} | {x['label']}"
+                f"{x['ground']:.0f} | {x['effective']:.2f} | {x['label']}"
             )
         parts.append("")
 
@@ -156,9 +174,13 @@ def build_context(cfg: Config, max_trips: int = 60, max_legs: int = 60) -> str:
             nights = (ret["dep"].date() - out["dep"].date()).days
             if nights < 1 or nights > 21:
                 continue
-            combos.append(
-                (out["effective"] + ret["effective"], out, ret, nights)
-            )
+            ground, _ = trip_ground(out["origin"], ret["destination"],
+                                    nights, cfg.travel)
+            days_off = work_days_used(out["dep"], ret["dep"], cfg.scoring)
+            holiday, _ = days_off_cost(days_off, out["dep"], cfg.scoring)
+            eff = (out["price"] + ret["price"] + out["adj"] + ret["adj"]
+                   + ground + holiday)
+            combos.append((eff, out, ret, nights, ground, days_off, holiday))
     # Luxair sells LUX-ALC as a whole round trip with no departure times, so
     # it cannot be paired leg-by-leg like the rest.
     if packages:
@@ -169,26 +191,36 @@ def build_context(cfg: Config, max_trips: int = 60, max_legs: int = 60) -> str:
             "non-stop LUX options; Google's LUX itineraries all have "
             "connections."
         )
-        parts.append("route | out date | nights | return date | price (round trip)")
+        parts.append("route | out date | nights | return date | "
+                     "price (round trip) | car | work days off | holiday | "
+                     "effective")
         for p in pkgs:
             out_day = date.fromisoformat(p["out_date"])
             back = out_day + timedelta(days=p["nights"])
+            home = p["destination"] if p["origin"] == "ALC" else p["origin"]
+            ground, _ = airport_ground(home, cfg.travel, p["nights"])
+            out_dt = datetime.combine(out_day, datetime.min.time())
+            ret_dt = datetime.combine(back, datetime.min.time())
+            days_off = work_days_used(out_dt, ret_dt, cfg.scoring, True, True)
+            holiday, _ = days_off_cost(days_off, out_dt, cfg.scoring, True)
             parts.append(
                 f"{p['origin']}->{p['destination']} | {out_day:%a %d %b %Y} | "
-                f"{p['nights']} | {back:%a %d %b %Y} | {p['price']:.2f}"
+                f"{p['nights']} | {back:%a %d %b %Y} | {p['price']:.2f} | "
+                f"{ground:.0f} | {days_off} | {holiday:.0f} | "
+                f"{p['price'] + ground + holiday:.2f}"
             )
         parts.append("")
 
     combos.sort(key=lambda c: c[0])
     parts.append(f"# Best round trips (top {min(max_trips, len(combos))} by effective cost)")
-    parts.append("out | departure | back | return | nights | work days off | price | effective")
-    for eff, out, ret, nights in combos[:max_trips]:
-        days_off = work_days_used(datetime.fromisoformat(out["departure"]),
-                                  datetime.fromisoformat(ret["departure"]), cfg.scoring)
+    parts.append("out | departure | back | return | nights | work days off | "
+                 "price | car | holiday | effective")
+    for eff, out, ret, nights, ground, days_off, holiday in combos[:max_trips]:
         parts.append(
             f"{out['origin']}->ALC | {_fmt_dt(out['departure'])} | "
             f"ALC->{ret['destination']} | {_fmt_dt(ret['departure'])} | {nights} | "
-            f"{days_off} | {out['price'] + ret['price']:.2f} | {eff:.2f}"
+            f"{days_off} | {out['price'] + ret['price']:.2f} | {ground:.0f} | "
+            f"{holiday:.0f} | {eff:.2f}"
         )
     parts.append("")
     parts.append(
@@ -196,7 +228,9 @@ def build_context(cfg: Config, max_trips: int = 60, max_legs: int = 60) -> str:
         "(a Friday departure after 17:30 costs none; any weekday return day counts). "
         "The user strongly prefers 0, accepts 1 (Friday or Monday) for a good "
         "price, and more only for a real bargain. Always state this number when "
-        "recommending a trip."
+        "recommending a trip. The 'holiday' column is what those days already "
+        "cost inside 'effective', so never present a trip as cheap on the "
+        "grounds that the holiday is free -- it is already paid for there."
     )
     return "\n".join(parts)
 

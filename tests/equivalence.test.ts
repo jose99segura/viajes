@@ -90,6 +90,10 @@ type Expected = {
       package: boolean;
       price: number;
       adjustment: number;
+      ground: number;
+      ground_label: string;
+      holiday: number;
+      holiday_label: string;
       effective: number;
       out_label: string;
       ret_label: string;
@@ -247,6 +251,10 @@ describe("matches the Python implementation", () => {
           package: t.isPackage,
           price: t.price,
           adjustment: t.adjustment,
+          ground: t.ground,
+          ground_label: t.groundLabel,
+          holiday: t.holiday,
+          holiday_label: t.holidayLabel,
           effective: t.effective,
           out_label: t.out.label,
           ret_label: t.ret.label,

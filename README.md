@@ -2,9 +2,11 @@
 
 Tracks flight prices between the Luxembourg-area airports (LUX / SCN / HHN) and
 Alicante (ALC), stores the full price history in SQLite, and ranks **round
-trips** by *effective cost*: ticket price plus a convenience adjustment in euros
-(weekend and Friday-evening departures get a bonus; departures during work hours
-get a penalty). A cheap flight that costs you a day off is not cheap.
+trips** by *effective cost*: ticket price, plus a convenience adjustment in
+euros (weekend and Friday-evening departures get a bonus; departures during work
+hours or a landing back home after 22:30 get a penalty), plus what it costs to
+reach that airport by car, plus the holiday the trip eats. A cheap flight that costs you a day off is not cheap,
+and neither is one that costs two hours of driving each way.
 
 ## Data sources
 
@@ -79,10 +81,11 @@ tracker works — sources, the scoring model, the data model and the known limit
 - **Ida y vuelta** — pairs every outbound leg with every return leg, scores the
   pair, and ranks by combined effective cost. Luxair's whole-trip fares are
   mixed in, tagged `paq.`. Filter by airport, nights, when you'd depart, price,
-  same-airport-only and non-stop-only.
-- **Solo ida** — the raw fare list, same scoring.
-- **Calendario** — two months at a time, each day coloured by its cheapest fare
-  (log scale, since fares cluster low with a long expensive tail). Switch
+  same-airport-only and non-stop-only. The **Tipo** field switches the same
+  page to **solo ida** — the raw fare list, same scoring — because one-way is a
+  way of searching, not a separate place to go.
+- **Calendario** — two months at a time, each day coloured by its best effective
+  cost (log scale, since fares cluster low with a long expensive tail). Switch
   between outbound and return; click a day to jump to the trips leaving then.
 - **◔ Alertas** — saved rules ("weekend, non-stop, under 120 €, no days off").
   Every `fetch` re-checks them and flags what is new; the sidebar shows an
@@ -108,16 +111,41 @@ weekday in between, and the return day whenever it is a weekday. So a Friday
 22:00 → Sunday trip costs **zero** days off, while Friday 09:35 → Monday costs
 two. Filter by it in the trips view, or bake it into an alert.
 
+Those days are also **priced**, at `scoring.day_off_cost` euros each, and the
+charge lands in the effective cost — otherwise the ranking would keep offering
+a Wednesday-to-Saturday trip as its best idea while quietly spending three days
+of your allowance. The departure day is deliberately left out of the charge:
+the work-hours and weekday penalties already price it, and billing both would
+charge the same day twice. So a Friday 22:00 → Sunday trip is still free, and a
+Wednesday → Saturday one carries the two extra days it really takes.
+
 Round-trip filtering happens server-side (`/api/trips`): there are tens of
 thousands of pairings, and a global top-N would hide every LUX trip behind
 cheaper Ryanair ones.
 
+### Coste de tierra
+
+The airport you fly from is not free. `travel` in `config.yaml` gives each home
+airport its distance, drive time and parking rate, and `eur_per_km` /
+`eur_per_hour` turn those into euros: the drive there and back, plus parking for
+every day the car waits (`nights + 1`). That number is the **Coche** column, and
+it is what stops a 25 € Ryanair fare from Hahn — 3h30 of driving away — from
+automatically beating a 116 € Luxair fare from an airport 15 minutes from home.
+
+Two rules worth knowing. Return to a *different* airport than you left from and
+both airports' driving is charged, because the car is still where you parked it.
+And an airport missing from `travel.airports` simply costs nothing on the
+ground, so adding a route before you have measured the drive degrades
+gracefully instead of breaking.
+
 ## Configuration
 
 Everything lives in [config.yaml](config.yaml): routes, how many months ahead to
-look, the Google sampling window (`google.weeks` / `google.weekdays`), and the
-scoring weights — what a work-hours departure "costs" you in euros, the bonus
-for Friday evening and weekends, the early-morning penalty.
+look, the Google sampling window (`google.weeks` / `google.weekdays`), the
+ground costs (`travel`), and the scoring weights — what a work-hours departure
+"costs" you in euros, what a day of holiday is worth (`day_off_cost`), the bonus
+for Friday evening and weekends, the early-morning penalty, the late-landing
+one.
 
 ## Automating the daily snapshot
 
@@ -147,12 +175,12 @@ flighttracker/
   alerts.py            alert rules and new-match tracking
   db.py                SQLite schema, migrations and queries
                        (fares, package_fares, favorites, alerts, alert_hits)
-  scoring.py           price -> effective cost adjustment
+  scoring.py           convenience adjustment + the cost of driving there
   providers/
     ryanair.py         Ryanair cheapest-per-day API
     google.py          Google Flights via fast-flights
     luxair.py          Luxair price calendar (whole round trips, no times)
-config.yaml            routes, sampling window, scoring weights
+config.yaml            routes, sampling window, scoring weights, ground costs
 .env                   API key for the chat assistant (gitignored)
 prices.db              price history (created on first fetch)
 ```

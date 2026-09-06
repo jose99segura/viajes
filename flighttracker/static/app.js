@@ -9,6 +9,7 @@ const state = {
   chat: [], chatBusy: false,
   favs: [], favKeys: new Set(),
   calMonth: null, calOut: {}, calIn: {}, calDir: "outbound", calSel: null,
+  group: true, openGroups: new Set(),
   alerts: [], alertEditing: null, userPicked: false, alertView: {},
 };
 // $ and the theme/sidebar shell live in shell.js (loaded first).
@@ -20,10 +21,11 @@ const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "
 const LABELS_ES = {
   "weekend": "finde", "fri evening": "viernes tarde", "weekday": "entre semana",
   "work hours": "horario laboral", "early": "madrugón", "ok": "ok",
+  "late arrival": "llegada de noche",
 };
 const labelES = l => l.split(", ").map(p => LABELS_ES[p] || p).join(" · ");
 function badgeClass(label) {
-  if (label.includes("work hours")) return "warn";
+  if (label.includes("work hours") || label.includes("late arrival")) return "warn";
   if (label.includes("weekend") || label.includes("fri evening")) return "good";
   return "";
 }
@@ -145,7 +147,8 @@ async function loadFavs() {
   const data = await (await fetch("/api/favorites")).json();
   state.favs = data.favorites;
   state.favKeys = new Set(data.favorites.map(f => f.key));
-  $("favCount").textContent = state.favs.length ? `(${state.favs.length})` : "";
+  // Bare number: the sidebar styles it as a count, the tab bar as a badge.
+  $("favCount").textContent = state.favs.length ? String(state.favs.length) : "";
 }
 
 async function toggleFav(fav) {
@@ -233,14 +236,20 @@ async function setMode(mode) {
   state.sortKey = "effective"; state.sortDir = 1;
   const TITLES = { trips: "Ida y vuelta", oneway: "Solo ida",
                    calendar: "Calendario", alerts: "Alertas", favs: "Favoritos" };
-  for (const [id, m] of [["tabTrips","trips"], ["tabOneway","oneway"],
-                         ["tabCalendar","calendar"], ["tabAlerts","alerts"],
-                         ["tabFavs","favs"]]) {
-    $(id).classList.toggle("active", mode === m);
+  // One-way lives inside the search page as a filter, so the same nav entry
+  // stays lit for both of its modes.
+  for (const [id, modes] of [["tabTrips", ["trips", "oneway"]],
+                             ["tabCalendar", ["calendar"]],
+                             ["tabAlerts", ["alerts"]],
+                             ["tabFavs", ["favs"]]]) {
+    $(id).classList.toggle("active", modes.includes(mode));
   }
   $("viewTitle").textContent = TITLES[mode] || "";
   const isTable = mode === "trips" || mode === "oneway";
   $("tableView").style.display = isTable ? "" : "none";
+  $("lKind").style.display = isTable ? "" : "none";
+  if (isTable) $("fKind").value = mode;
+  $("lSort").style.display = isTable ? "" : "none";   // CSS keeps it phone-only
   $("calendarView").style.display = mode === "calendar" ? "" : "none";
   $("favsView").style.display = mode === "favs" ? "" : "none";
   $("alertsView").style.display = mode === "alerts" ? "" : "none";
@@ -250,6 +259,7 @@ async function setMode(mode) {
     (chrome || mode === "calendar") ? "none" : "";
   $("lNights").style.display = mode === "trips" ? "" : "none";
   $("lSame").style.display = mode === "trips" ? "" : "none";
+  $("lGroup").style.display = mode === "trips" ? "" : "none";
   $("lSource").style.display = mode === "oneway" ? "" : "none";
   for (const id of ["fWhen", "fMax"]) {
     $(id).closest("label").style.display = mode === "calendar" ? "none" : "";
@@ -274,8 +284,8 @@ async function loadCalendar() {
   const p = new URLSearchParams();
   if ($("fAirport").value) p.set("airport", $("fAirport").value);
   const data = await (await fetch(`/api/calendar?${p}`)).json();
-  state.calOut = Object.fromEntries(data.outbound.map(d => [d.day, d.price]));
-  state.calIn = Object.fromEntries(data.inbound.map(d => [d.day, d.price]));
+  state.calOut = Object.fromEntries(data.outbound.map(d => [d.day, d]));
+  state.calIn = Object.fromEntries(data.inbound.map(d => [d.day, d]));
   if (!state.calMonth) {
     const now = new Date();
     state.calMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -287,11 +297,20 @@ async function loadCalendar() {
 const CAL_RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95"];
 
 function renderCalendar() {
-  const days = state.calDir === "outbound" ? state.calOut : state.calIn;
+  const info = state.calDir === "outbound" ? state.calOut : state.calIn;
+  // Colour by effective cost, like every other view: a 22 € fare from an
+  // airport two hours away must not paint a greener day than a 107 € one from
+  // the airport down the road.
+  const days = {}, titles = {};
+  for (const [iso, d] of Object.entries(info)) {
+    days[iso] = d.effective;
+    titles[iso] = `${iso} · ${d.airport}${d.airline ? " " + d.airline : ""} · ` +
+      `${fmtEUR(d.price)} billete → ${fmtEUR(d.effective)} efectivo`;
+  }
   const prices = Object.values(days);
   $("calTitle").textContent = state.calDir === "outbound"
-    ? "Precio más bajo por día — ida hacia Alicante"
-    : "Precio más bajo por día — vuelta desde Alicante";
+    ? "Coste efectivo más bajo por día — ida hacia Alicante"
+    : "Coste efectivo más bajo por día — vuelta desde Alicante";
 
   $("calRamp").innerHTML = CAL_RAMP.map(c => `<i style="background:${c}"></i>`).join("");
 
@@ -308,11 +327,11 @@ function renderCalendar() {
   host.innerHTML = "";
   for (let i = 0; i < 2; i++) {
     const base = new Date(state.calMonth.getFullYear(), state.calMonth.getMonth() + i, 1);
-    host.appendChild(monthGrid(base, days, colorFor, selectCalDay));
+    host.appendChild(monthGrid(base, days, colorFor, selectCalDay, titles));
   }
 }
 
-function monthGrid(base, days, colorFor, onClick) {
+function monthGrid(base, days, colorFor, onClick, titles = {}) {
   const el = document.createElement("div");
   el.className = "month";
   const label = base.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
@@ -333,7 +352,7 @@ function monthGrid(base, days, colorFor, onClick) {
       const dark = CAL_RAMP.indexOf(bg) >= 3;
       cells += `<div class="day has${wknd}${state.calSel === iso ? " sel" : ""}" data-day="${iso}"
         style="background:${bg};color:${dark ? "#fff" : "#0b0b0b"}"
-        title="${iso} · ${fmtEUR(price)}">
+        title="${titles[iso] || `${iso} · ${fmtEUR(price)}`}">
         <span class="n">${d}</span><span class="p">${Math.round(price)}€</span></div>`;
     }
   }
@@ -357,6 +376,17 @@ async function selectCalDay(iso) {
 }
 
 // ---------- favourites ----------
+
+/* A saved trip is worth what it costs door to door, so the card leads with the
+   effective cost and explains where it came from. */
+function favBreakdown(f) {
+  if (f.price_now == null) return "sin precio en la última captura";
+  const bits = [`${fmtEUR(f.price_now)} billete`];
+  if (f.adjustment) bits.push(`${f.adjustment > 0 ? "+" : "−"}${Math.abs(f.adjustment).toFixed(0)} € ajuste`);
+  if (f.ground) bits.push(`+${f.ground.toFixed(0)} € coche`);
+  if (f.holiday) bits.push(`+${f.holiday.toFixed(0)} € ${f.holiday_label}`);
+  return bits.join(" ");
+}
 
 function renderFavs() {
   const host = $("favGrid");
@@ -411,8 +441,9 @@ function renderFavs() {
       <div class="sub">${nights != null ? `${nights} noches · ` : ""}guardado ${
         f.created_at.slice(0, 10)}</div>
       ${legs}
-      <div class="total"><span style="color:var(--ink-2);font-size:12.5px">total ahora</span>
-        <span><span class="v">${f.price_now != null ? fmtEUR(f.price_now) : "—"}</span> ${delta}</span></div>
+      <div class="total"><span style="color:var(--ink-2);font-size:12.5px">coste efectivo</span>
+        <span><span class="v">${f.effective_now != null ? fmtEUR(f.effective_now) : "—"}</span> ${delta}</span></div>
+      <div style="color:var(--muted);font-size:11.5px;margin-top:-4px">${favBreakdown(f)}</div>
       <div class="book-links">${bookHtml}</div>`;
     el.querySelector(".rm").addEventListener("click", () => toggleFav({
       kind: f.kind, out_origin: f.out_origin, out_destination: f.out_destination,
@@ -432,6 +463,7 @@ const COLS = {
     { k: "days_off", t: "Días libres", num: true },
     { k: "price", t: "Precio", num: true },
     { k: "adjustment", t: "Ajuste", num: true },
+    { k: "ground", t: "Coche", num: true },
     { k: "effective", t: "Efectivo", num: true },
     { k: "when", t: "Cuándo" },
   ],
@@ -440,10 +472,27 @@ const COLS = {
     { k: "route", t: "Vuelo" }, { k: "departure", t: "Salida" },
     { k: "price", t: "Precio", num: true },
     { k: "adjustment", t: "Ajuste", num: true },
+    { k: "ground", t: "Coche", num: true },
     { k: "effective", t: "Efectivo", num: true },
     { k: "label", t: "Cuándo" }, { k: "source", t: "Fuente" },
   ],
 };
+
+/* On a phone the table renders as cards without a header row, so the sort
+   controls that live in the <th>s move into the filter bar instead. */
+function renderSortControl() {
+  const sel = $("fSort");
+  sel.innerHTML = "";
+  for (const c of COLS[state.mode]) {
+    if (c.star) continue;
+    const o = document.createElement("option");
+    o.value = c.k; o.textContent = c.t;
+    o.selected = c.k === state.sortKey;
+    sel.appendChild(o);
+  }
+  $("fSortDir").textContent = state.sortDir === 1 ? "▲" : "▼";
+  $("fSortDir").title = state.sortDir === 1 ? "Ascendente" : "Descendente";
+}
 
 function renderHead() {
   const tr = $("theadRow");
@@ -462,6 +511,7 @@ function renderHead() {
     });
     tr.appendChild(th);
   }
+  renderSortControl();
 }
 
 function renderTiles() {
@@ -480,9 +530,12 @@ function renderTiles() {
     $("tileBest").textContent = fmtEUR0(best.effective);
     $("tileBestDetail").textContent =
       `${best.out.origin}→ALC ${fmtDep(best.out.departure)} · ${best.nights} noches · ${fmtEUR0(best.price)} real`;
+    // The cheapest ticket is nearly always not the best trip. Showing what it
+    // really costs is the whole point of the tile sitting next to "mejor".
     $("tileCheapest").textContent = fmtEUR0(cheap.price);
     $("tileCheapestDetail").textContent =
-      `${cheap.out.origin}→ALC ${fmtDep(cheap.out.departure)} · ${cheap.nights} noches`;
+      `${cheap.out.origin}→ALC ${fmtDep(cheap.out.departure)} · ${cheap.nights} noches · ` +
+      `${fmtEUR0(cheap.effective)} efectivo`;
     $("tileCount").textContent = (state.tripsTotal ?? ts.length).toLocaleString("es-ES");
     $("tileCountDetail").textContent = state.tripsCapped
       ? `mostrando las ${ts.length.toLocaleString("es-ES")} mejores`
@@ -498,7 +551,8 @@ function renderTiles() {
     $("tileBest").textContent = fmtEUR0(best.effective);
     $("tileBestDetail").textContent = `${best.route} · ${fmtDep(best.departure)}`;
     $("tileCheapest").textContent = fmtEUR0(cheap.price);
-    $("tileCheapestDetail").textContent = `${cheap.route} · ${fmtDep(cheap.departure)}`;
+    $("tileCheapestDetail").textContent =
+      `${cheap.route} · ${fmtDep(cheap.departure)} · ${fmtEUR0(cheap.effective)} efectivo`;
     $("tileCount").textContent = fs.length.toLocaleString("es-ES");
     $("tileCountDetail").textContent = [...new Set(fs.map(f => f.route))].length + " rutas trackeadas";
   }
@@ -544,12 +598,50 @@ function sortVal(item, k) {
   return item[k];
 }
 
+/* Twenty rows of the same Luxair route on consecutive dates say one thing, not
+   twenty. Grouping keeps the best of each (airport pair, departure week) and
+   folds the rest away, so the list shows the choices rather than the noise. */
+function groupKey(t) {
+  const d = new Date(t.out.departure);
+  // Monday of that week, so a Fri/Sat pair of the same weekend stays together.
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return `${t.out.origin}|${t.ret.destination}|${monday.toISOString().slice(0, 10)}`;
+}
+
+function groupRows(sorted) {
+  const seen = new Map();
+  for (const t of sorted) {
+    const k = groupKey(t);
+    if (!seen.has(k)) seen.set(k, []);
+    seen.get(k).push(t);
+  }
+  const out = [];
+  for (const [k, members] of seen) {
+    const best = members[0];          // already in sort order
+    best._group = k;
+    best._more = members.length - 1;
+    out.push(best);
+    if (state.openGroups.has(k)) {
+      for (const m of members.slice(1)) {
+        m._group = k; m._more = 0; m._child = true;
+        out.push(m);
+      }
+    }
+  }
+  // Folding reorders nothing on its own, but an opened group must not push its
+  // parent out of position, so re-apply the active sort to the visible rows.
+  return out;
+}
+
 function render() {
   const all = state.mode === "trips" ? filteredTrips() : filteredOneway();
   all.sort((a, b) => {
     const av = sortVal(a, state.sortKey), bv = sortVal(b, state.sortKey);
     return (typeof av === "number" ? av - bv : String(av).localeCompare(String(bv))) * state.sortDir;
   });
+  const grouped = state.mode === "trips" && state.group;
+  const shown = grouped ? groupRows(all) : all;
 
   document.querySelectorAll("#tbl th").forEach(th => {
     const arrow = th.querySelector(".arrow");   // the star column has none
@@ -558,11 +650,12 @@ function render() {
         th.dataset.k === state.sortKey ? (state.sortDir === 1 ? "▲" : "▼") : "";
     }
   });
+  renderSortControl();
 
-  const pages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
   if (state.page > pages) state.page = pages;
   const start = (state.page - 1) * PAGE_SIZE;
-  const rows = all.slice(start, start + PAGE_SIZE);
+  const rows = shown.slice(start, start + PAGE_SIZE);
 
   const tbody = $("tbody");
   tbody.innerHTML = "";
@@ -573,11 +666,20 @@ function render() {
   for (const item of rows) {
     const tr = document.createElement("tr");
     if (state.selected === item) tr.classList.add("selected");
-    tr.innerHTML = state.mode === "trips" ? tripRow(item) : onewayRow(item);
+    if (grouped && item._child) tr.classList.add("child");
+    tr.innerHTML = state.mode === "trips"
+      ? tripRow(item, grouped) : onewayRow(item);
     tr.addEventListener("click", ev => {
       if (ev.target.closest(".star")) {
         ev.stopPropagation();
         toggleFav(state.mode === "trips" ? tripFav(item) : flightFav(item));
+        return;
+      }
+      if (ev.target.closest(".more")) {
+        ev.stopPropagation();
+        if (state.openGroups.has(item._group)) state.openGroups.delete(item._group);
+        else state.openGroups.add(item._group);
+        render();
         return;
       }
       state.mode === "trips" ? selectTrip(item) : selectFlight(item);
@@ -585,40 +687,70 @@ function render() {
     tbody.appendChild(tr);
   }
 
-  $("rowCount").textContent = `${all.length.toLocaleString("es-ES")} ${state.mode === "trips" ? "viajes" : "vuelos"}`;
-  renderPager(all.length, pages);
+  const noun = state.mode === "trips" ? "viajes" : "vuelos";
+  $("rowCount").textContent = grouped && shown.length < all.length
+    ? `${shown.length.toLocaleString("es-ES")} de ${all.length.toLocaleString("es-ES")} ${noun}`
+    : `${all.length.toLocaleString("es-ES")} ${noun}`;
+  renderPager(shown.length, pages);
 }
 
 // 0 days off is the thing worth spotting, so it reads as a win, not a zero.
-function daysOffCell(d) {
+// The euros those days cost ride in the tooltip rather than in a column of
+// their own: the table is wide enough, and the detail panel spells it out.
+function daysOffCell(d, holiday) {
   if (d === undefined || d === null) return "–";
+  const tip = holiday ? ` title="${holiday.toFixed(0)} € de vacaciones"` : "";
   if (d === 0) return `<span class="badge good">ninguno</span>`;
-  return `<span class="badge ${d <= 1 ? "" : "warn"}">${d}</span>`;
+  return `<span class="badge ${d <= 1 ? "" : "warn"}"${tip}>${d}</span>`;
 }
 
-function tripRow(t) {
+// What the airport costs you before the airline charges anything: the drive
+// there and back, plus parking while the car waits.
+function groundCell(g) {
+  if (!g) return "–";
+  return `+${g.toFixed(0)} €`;
+}
+
+// Ticket, convenience and car, spelled out — so the ranking never looks arbitrary.
+function costBreakdown(item) {
+  const bits = [`${fmtEUR(item.price)} billete`];
+  if (item.adjustment) bits.push(`${item.adjustment > 0 ? "+" : "−"}${Math.abs(item.adjustment).toFixed(0)} € ajuste`);
+  if (item.ground) bits.push(`+${item.ground.toFixed(0)} € coche${item.ground_label ? ` (${item.ground_label})` : ""}`);
+  if (item.holiday) bits.push(`+${item.holiday.toFixed(0)} € ${item.holiday_label}`);
+  return `${bits.join(" ")} = ${fmtEUR(item.effective)} efectivo`;
+}
+
+/* Every cell carries its column name so the narrow-screen card layout, which
+   drops the header row, can print the label next to the value. */
+function tripRow(t, grouped) {
+  const more = grouped && t._more
+    ? ` <span class="more" title="Otras ${t._more} combinaciones parecidas esa semana">${
+        state.openGroups.has(t._group) ? "−" : "+"}${t._more}</span>`
+    : "";
   return starCell(tripFav(t)) + `
-    <td>${legCell(t.out.origin, "ALC", t.out.airline, t.out.stops)}</td>
-    <td>${whenCell(t.out.departure, t.out.date_only)}</td>
-    <td>${legCell("ALC", t.ret.destination, t.ret.airline, t.ret.stops)}</td>
-    <td>${whenCell(t.ret.departure, t.ret.date_only)}</td>
-    <td class="num">${t.nights}</td>
-    <td class="num">${daysOffCell(t.days_off)}</td>
-    <td class="num">${fmtEUR(t.price)}${t.package ? ' <span class="badge">paq.</span>' : ""}</td>
-    <td class="num adj">${t.adjustment > 0 ? "+" : ""}${t.adjustment.toFixed(0)} €</td>
-    <td class="num"><span class="eff">${fmtEUR(t.effective)}</span></td>
-    <td>${badges(t.out.label)}</td>`;
+    <td data-t="Ida">${legCell(t.out.origin, "ALC", t.out.airline, t.out.stops)}${more}</td>
+    <td data-t="Salida">${whenCell(t.out.departure, t.out.date_only)}</td>
+    <td data-t="Vuelta">${legCell("ALC", t.ret.destination, t.ret.airline, t.ret.stops)}</td>
+    <td data-t="Regreso">${whenCell(t.ret.departure, t.ret.date_only)}</td>
+    <td class="num" data-t="Noches">${t.nights}</td>
+    <td class="num" data-t="Días libres">${daysOffCell(t.days_off, t.holiday)}</td>
+    <td class="num" data-t="Precio">${fmtEUR(t.price)}${t.package ? ' <span class="badge">paq.</span>' : ""}</td>
+    <td class="num adj" data-t="Ajuste">${t.adjustment > 0 ? "+" : ""}${t.adjustment.toFixed(0)} €</td>
+    <td class="num adj" data-t="Coche" title="${t.ground_label || ""}">${groundCell(t.ground)}</td>
+    <td class="num" data-t="Efectivo"><span class="eff">${fmtEUR(t.effective)}</span></td>
+    <td data-t="Cuándo">${badges(t.out.label)}</td>`;
 }
 
 function onewayRow(f) {
   return starCell(flightFav(f)) + `
-    <td>${legCell(f.origin, f.destination, f.airline, f.stops)}</td>
-    <td>${whenCell(f.departure)}</td>
-    <td class="num">${fmtEUR(f.price)}</td>
-    <td class="num adj">${f.adjustment > 0 ? "+" : ""}${f.adjustment.toFixed(0)} €</td>
-    <td class="num"><span class="eff">${fmtEUR(f.effective)}</span></td>
-    <td>${badges(f.label)}</td>
-    <td><span class="src">${f.source}</span></td>`;
+    <td data-t="Vuelo">${legCell(f.origin, f.destination, f.airline, f.stops)}</td>
+    <td data-t="Salida">${whenCell(f.departure)}</td>
+    <td class="num" data-t="Precio">${fmtEUR(f.price)}</td>
+    <td class="num adj" data-t="Ajuste">${f.adjustment > 0 ? "+" : ""}${f.adjustment.toFixed(0)} €</td>
+    <td class="num adj" data-t="Coche" title="${f.ground_label || ""}">${groundCell(f.ground)}</td>
+    <td class="num" data-t="Efectivo"><span class="eff">${fmtEUR(f.effective)}</span></td>
+    <td data-t="Cuándo">${badges(f.label)}</td>
+    <td data-t="Fuente"><span class="src">${f.source}</span></td>`;
 }
 
 function renderPager(total, pages) {
@@ -677,7 +809,7 @@ async function selectFlight(f) {
   state.selected = f;
   render();
   openDetail(`${f.origin} → ${f.destination} · ${fmtDep(f.departure)}`,
-    `${f.airline || "?"} · ${stopsES(f.stops)} · ${fmtEUR(f.price)} · evolución del precio`, false);
+    `${f.airline || "?"} · ${stopsES(f.stops)} · ${costBreakdown(f)}`, false);
   $("dBook").innerHTML = bookingLinksHtml(bookingLinksFor(f, false));
   drawChart([{ pts: await fetchHistory(f.origin, f.destination, f.departure),
                color: "--series-1", name: "precio" }]);
@@ -689,7 +821,7 @@ async function selectTrip(t) {
   openDetail(
     `${t.out.origin} → ALC → ${t.ret.destination} · ${t.nights} noches`,
     `Ida ${fmtDep(t.out.departure)} (${t.out.airline || "?"}) · vuelta ${fmtDep(t.ret.departure)} ` +
-    `(${t.ret.airline || "?"}) · total ${fmtEUR(t.price)}`, true);
+    `(${t.ret.airline || "?"}) · ${costBreakdown(t)}`, true);
   $("dBook").innerHTML = bookingLinksHtml(bookingLinksFor(t, true));
   const [o, r] = await Promise.all([
     fetchHistory(t.out.origin, "ALC", t.out.departure),
@@ -717,6 +849,7 @@ function closeDetail() {
 }
 
 function drawChart(seriesList) {
+  state.chartSeries = seriesList;
   const host = $("chartHost");
   seriesList = seriesList.filter(s => s.pts.length);
   if (!seriesList.length) {
@@ -725,8 +858,11 @@ function drawChart(seriesList) {
   }
   const css = getComputedStyle(document.documentElement);
   const C = n => css.getPropertyValue(n).trim();
-  const W = host.clientWidth || 900, H = 220;
-  const m = { top: 14, right: 16, bottom: 26, left: 54 };
+  const W = host.clientWidth || 900;
+  const narrow = W < 460;                       // phone: shorter, tighter gutters
+  const H = narrow ? 170 : 220;
+  const m = narrow ? { top: 12, right: 10, bottom: 24, left: 42 }
+                   : { top: 14, right: 16, bottom: 26, left: 54 };
   const iw = W - m.left - m.right, ih = H - m.top - m.bottom;
 
   const allPts = seriesList.flatMap(s => s.pts);
@@ -742,16 +878,25 @@ function drawChart(seriesList) {
   for (let i = 0; i <= 4; i++) {
     const v = p0 + (p1 - p0) * i / 4, y = Y(v);
     grid += `<line x1="${m.left}" y1="${y}" x2="${W - m.right}" y2="${y}" stroke="${C("--grid")}" stroke-width="1"/>`;
-    yLabels += `<text x="${m.left - 9}" y="${y + 4}" text-anchor="end" font-size="11" fill="${C("--muted")}">${Math.round(v)} €</text>`;
+    // A flat series needs decimals or every gridline reads the same number.
+    const lbl = (p1 - p0) < 8 ? v.toFixed(1) : String(Math.round(v));
+    yLabels += `<text x="${m.left - 7}" y="${y + 4}" text-anchor="end" font-size="${narrow ? 10 : 11}" fill="${C("--muted")}">${lbl} €</text>`;
   }
   const fmtT = t => { const d = new Date(t); return `${d.getDate()} ${MONTHS[d.getMonth()]}`; };
   let xLabels = "";
   const shown = new Set();
+  let lastX = -Infinity;
+  const minGap = narrow ? 54 : 42;              // px between date labels
   for (const t of [...new Set(ts)].sort((a, b) => a - b)) {
     const lbl = fmtT(t);
     if (shown.has(lbl)) continue;
-    shown.add(lbl);
-    xLabels += `<text x="${X(t)}" y="${H - 8}" text-anchor="middle" font-size="11" fill="${C("--muted")}">${lbl}</text>`;
+    const x = X(t);
+    if (x - lastX < minGap) continue;
+    shown.add(lbl); lastX = x;
+    // Keep the first and last labels inside the frame instead of half cut off.
+    const half = lbl.length * (narrow ? 2.6 : 2.9);
+    const lx = Math.max(half + 2, Math.min(x, W - half - 2));
+    xLabels += `<text x="${lx}" y="${H - 8}" text-anchor="middle" font-size="${narrow ? 10 : 11}" fill="${C("--muted")}">${lbl}</text>`;
   }
 
   let paths = "";
@@ -773,7 +918,7 @@ function drawChart(seriesList) {
 
   const svg = host.querySelector("svg"), xhair = svg.querySelector("#xhair"), tip = $("tooltip");
   const times = [...new Set(ts)].sort((a, b) => a - b);
-  svg.addEventListener("mousemove", ev => {
+  const probe = ev => {
     const rect = svg.getBoundingClientRect();
     const mx = (ev.clientX - rect.left) * (W / rect.width);
     let bt = times[0], bd = Infinity;
@@ -788,13 +933,34 @@ function drawChart(seriesList) {
     }
     tip.innerHTML = html;
     tip.style.display = "block";
-    tip.style.left = Math.min(ev.clientX + 14, window.innerWidth - 160) + "px";
-    tip.style.top = (ev.clientY + 14) + "px";
-  });
-  svg.addEventListener("mouseleave", () => {
-    xhair.style.display = "none"; tip.style.display = "none";
-  });
+    // Keep the tooltip on screen, and above the finger rather than under it.
+    const tw = tip.offsetWidth || 150, th = tip.offsetHeight || 46;
+    tip.style.left = Math.max(8, Math.min(ev.clientX + 14, window.innerWidth - tw - 8)) + "px";
+    tip.style.top = (ev.pointerType === "touch"
+      ? Math.max(8, ev.clientY - th - 16) : ev.clientY + 14) + "px";
+  };
+  const hide = () => { xhair.style.display = "none"; tip.style.display = "none"; };
+  // Pointer events cover mouse and touch; pan-y keeps the page scrollable while
+  // a horizontal drag reads the series.
+  svg.addEventListener("pointerdown", probe);
+  svg.addEventListener("pointermove", ev => { if (ev.pointerType !== "touch" || ev.buttons || ev.pressure) probe(ev); });
+  svg.addEventListener("pointerup", hide);
+  svg.addEventListener("pointercancel", hide);
+  svg.addEventListener("pointerleave", hide);
 }
+
+// The chart is sized in absolute pixels, so it has to be redrawn when the
+// viewport changes (rotation, keyboard, chat panel opening).
+let chartResizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(chartResizeTimer);
+  chartResizeTimer = setTimeout(() => {
+    if (state.chartSeries && $("detail").classList.contains("open")) {
+      drawChart(state.chartSeries);
+    }
+    if (state.mode === "calendar") renderCalendar();
+  }, 150);
+});
 
 // ---------- chat ----------
 
@@ -1032,6 +1198,8 @@ async function sendChat() {
 function toggleChat(force) {
   const open = force ?? !$("chat").classList.contains("open");
   $("chat").classList.toggle("open", open);
+  // Full-screen on a phone: stop the page behind it from scrolling too.
+  document.body.classList.toggle("chat-open", open);
   $("chatToggle").classList.toggle("on", open);
   if (open) setTimeout(() => $("chatInput").focus(), 180);
 }
@@ -1039,8 +1207,9 @@ function toggleChat(force) {
 // ---------- events ----------
 
 const pick = mode => { state.userPicked = true; setMode(mode); };
+// The nav entry always lands on round trips; the Tipo field switches within.
 $("tabTrips").addEventListener("click", () => pick("trips"));
-$("tabOneway").addEventListener("click", () => pick("oneway"));
+$("fKind").addEventListener("input", () => pick($("fKind").value));
 $("tabCalendar").addEventListener("click", () => pick("calendar"));
 $("tabFavs").addEventListener("click", () => pick("favs"));
 $("tabAlerts").addEventListener("click", () => pick("alerts"));
@@ -1068,6 +1237,13 @@ $("chatInput").addEventListener("input", e => {
   e.target.style.height = Math.min(e.target.scrollHeight, 130) + "px";
 });
 
+$("fSort").addEventListener("change", e => {
+  state.sortKey = e.target.value; state.page = 1; render();
+});
+$("fSortDir").addEventListener("click", () => {
+  state.sortDir *= -1; state.page = 1; render();
+});
+
 let filterTimer = null;
 function onFilterChange() {
   state.page = 1;
@@ -1089,6 +1265,13 @@ for (const id of ["fAirport", "fWhen", "fSource", "fMax", "fSame", "fDirect",
                   "fMinN", "fMaxN", "fDaysOff"]) {
   $(id).addEventListener("input", onFilterChange);
 }
+// Grouping is a view of the rows already loaded, so it never refetches.
+$("fGroup").addEventListener("input", () => {
+  state.group = $("fGroup").checked;
+  state.openGroups.clear();
+  state.page = 1;
+  render();
+});
 
 
 
@@ -1136,7 +1319,9 @@ function alertRow(m) {
     `${alertDay(m.ret.departure)}${alertTime(m.ret)} · ${m.nights}n · ` +
     `${m.out.airline}${m.package ? " (paq.)" : ""}</span>` +
     off +
-    `<span class="price">${fmtEUR(m.price)}</span>` +
+    `<span class="price" title="${costBreakdown(m)}">${fmtEUR(m.effective)}` +
+    `<span style="display:block;color:var(--muted);font-size:11px;font-weight:500">` +
+    `${fmtEUR(m.price)} billete</span></span>` +
     bookingLinksHtml(bookingLinksFor(m, true), "small");
   el.querySelectorAll(".book-link").forEach(a => a.addEventListener("click", e => e.stopPropagation()));
   el.addEventListener("click", () => {
@@ -1184,11 +1369,16 @@ function renderAlertList(rows, matches) {
 
 // Sequential ramp reused from the main calendar, cheap = strong colour.
 function renderAlertCalendar(rows, alert, matches) {
-  const byDay = {};       // ISO day -> cheapest price seen that day
+  const byDay = {};       // ISO day -> best effective cost seen that day
+  const titles = {};
   const newByDay = {};    // ISO day -> any match that day is new
   for (const m of matches) {
     const day = m.out.departure.slice(0, 10);
-    if (!(day in byDay) || m.price < byDay[day]) byDay[day] = m.price;
+    if (!(day in byDay) || m.effective < byDay[day]) {
+      byDay[day] = m.effective;
+      titles[day] = `${day} · ${m.out.origin} → ALC → ${m.ret.destination} · ` +
+        `${fmtEUR(m.price)} billete → ${fmtEUR(m.effective)} efectivo`;
+    }
     if (m.is_new) newByDay[day] = true;
   }
   const days = Object.keys(byDay).sort();
@@ -1211,7 +1401,8 @@ function renderAlertCalendar(rows, alert, matches) {
   let cursor = new Date(first.getFullYear(), first.getMonth(), 1);
   const stop = new Date(last.getFullYear(), last.getMonth(), 1);
   while (cursor <= stop) {
-    const grid = monthGrid(cursor, byDay, colorFor, iso => selectAlertCalDay(alert, iso));
+    const grid = monthGrid(cursor, byDay, colorFor,
+                           iso => selectAlertCalDay(alert, iso), titles);
     if (newByDay) {
       grid.querySelectorAll(".day.has").forEach(d => {
         if (newByDay[d.dataset.day]) d.style.outline = "2px solid var(--accent)";
@@ -1263,8 +1454,8 @@ function renderAlerts() {
         ${nNew ? `<span class="pill new">${nNew} nueva${nNew === 1 ? "" : "s"}</span>` : ""}
         <span class="pill ${entry.total ? "hit" : ""}">${entry.total} coincidencia${entry.total === 1 ? "" : "s"}</span>
         <div class="view-toggle" data-role="viewtoggle">
-          <button data-view="list">☰ Lista</button>
-          <button data-view="calendar">▦ Calendario</button>
+          <button data-view="list"><span>☰</span><span>Lista</span></button>
+          <button data-view="calendar"><span>▦</span><span>Calendario</span></button>
         </div>
         <button data-act="toggle" title="${a.enabled ? "Desactivar" : "Activar"}">${a.enabled ? "◉" : "○"}</button>
         <button data-act="edit" title="Editar">✎</button>
@@ -1350,7 +1541,7 @@ function alertForm(a) {
       </select></label>
     <label class="field"><span>Precio máx (€)</span>
       <input type="number" class="narrow" data-f="max_price" min="0" step="10"
-             style="width:80px" value="${a && a.max_price != null ? Math.round(a.max_price) : ""}"></label>
+             value="${a && a.max_price != null ? Math.round(a.max_price) : ""}"></label>
     <label class="field"><span>Días libres máx</span>
       <select data-f="max_days_off">
         <option value="">Los que sean</option>

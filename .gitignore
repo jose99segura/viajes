@@ -24,6 +24,7 @@ npm-debug.log*
 # env files
 .env*
 !.env.example
+env.prod
 
 # typescript
 *.tsbuildinfo

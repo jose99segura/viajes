@@ -14,7 +14,8 @@ export const INFO_HTML = `
   Frankfurt-Hahn y Alicante. Captura tarifas de tres fuentes distintas,
   las guarda con histórico en SQLite, y las ordena no por precio sino por
   <b>coste efectivo</b>: lo que cuesta el billete más lo que te cuesta a
-  ti en tiempo y días de vacaciones.
+  ti en tiempo, días de vacaciones y kilómetros de coche hasta el
+  aeropuerto.
 </p>
 
 <div class="toc">
@@ -179,8 +180,9 @@ export const INFO_HTML = `
 <h2 id="coste">3 · El modelo de coste efectivo</h2>
 <p>
   Ordenar por precio a secas es engañoso: un vuelo de 22 € un martes a las
-  10:00 te cuesta además un día de vacaciones. La idea central de la app es
-  convertir esa incomodidad en euros y sumarla al billete.
+  10:00 te cuesta además un día de vacaciones, y si sale de Hahn, tres
+  horas y media de coche. La idea central de la app es convertir esa
+  incomodidad en euros y sumarla al billete.
 </p>
 <div class="tbl-wrap">
   <table>
@@ -191,6 +193,7 @@ export const INFO_HTML = `
       <tr><td>Entre semana (lun–jue)</td><td>+20 €</td><td>Escapada más incómoda, trabajas al día siguiente</td></tr>
       <tr><td>En horario laboral (09:00–17:30)</td><td>+60 €</td><td>Equivale a pedir el día</td></tr>
       <tr><td>Antes de las 06:30</td><td>+15 €</td><td>Madrugón</td></tr>
+      <tr><td>Aterriza en casa después de las 22:30</td><td>+25 €</td><td>Te queda el viaje en coche de noche</td></tr>
     </tbody>
   </table>
 </div>
@@ -206,6 +209,44 @@ export const INFO_HTML = `
     por hora. Sin horarios publicados no se puede saber si sale en horario
     laboral, y penalizarlas por algo que no podemos ver las hundiría
     injustamente en el ranking.
+  </p>
+</div>
+
+<h3>El coche también es parte del precio</h3>
+<p>
+  Un vuelo desde Hahn a 25 € no cuesta 25 €: cuesta además 155 km de ida,
+  otros tantos de vuelta, tres horas y media al volante y el parking de
+  todos los días que el coche se queda allí. Luxemburgo está a 15 minutos.
+  Ignorar eso hace que Ryanair gane siempre, y en la vida real no gana
+  siempre. Por eso el coste efectivo suma también el <b>coste de tierra</b>:
+</p>
+<div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Aeropuerto</th><th>Coche (ida y vuelta)</th><th>Parking</th><th>Coste de tierra</th></tr></thead>
+    <tbody>
+      <tr><td>LUX</td><td>30 min · 16 km</td><td>7 €/día</td><td>10 € + parking</td></tr>
+      <tr><td>SCN</td><td>2 h 20 · 190 km</td><td>4 €/día</td><td>70 € + parking</td></tr>
+      <tr><td>HHN</td><td>3 h 30 · 310 km</td><td>5 €/día</td><td>110 € + parking</td></tr>
+      <tr><td>CRL</td><td>4 h 30 · 400 km</td><td>7 €/día</td><td>142 € + parking</td></tr>
+    </tbody>
+  </table>
+</div>
+<p>
+  Sale de <code>travel</code> en <code>config.yaml</code>: los kilómetros y
+  minutos de cada aeropuerto, lo que te cuesta el kilómetro
+  (<code>eur_per_km</code>, combustible y desgaste) y lo que vale para ti
+  una hora conduciendo (<code>eur_per_hour</code>). El parking se cobra por
+  los días que el coche espera, así que pesa poco en un finde y mucho en
+  dos semanas. La columna <b>Coche</b> de las tablas es exactamente esta
+  cifra, y pasando el ratón por encima verás el desglose.
+</p>
+<div class="note">
+  <p>
+    Si vuelves a un aeropuerto distinto del que saliste, el coche sigue
+    donde lo dejaste: el modelo cobra la conducción de los <b>dos</b>
+    aeropuertos, porque tendrás que volver a por él. Un aeropuerto que no
+    esté en <code>travel.airports</code> simplemente no suma coste de
+    tierra, así que añadir una ruta nueva no rompe nada.
   </p>
 </div>
 
@@ -236,6 +277,22 @@ export const INFO_HTML = `
     el filtro «Días libres» y las alertas van juntos.
   </p>
 </div>
+<h3>Y además se pagan</h3>
+<p>
+  Contarlos no basta: si no cuestan nada, el ranking te sigue proponiendo
+  un miércoles a sábado como su mejor idea mientras se gasta tres días de
+  tus vacaciones. Así que cada día vale <code>day_off_cost</code> euros
+  (45 € por defecto) y ese cargo entra en el coste efectivo.
+</p>
+<p>
+  Con una excepción deliberada: <b>el día de salida no se cobra aquí</b>,
+  porque ya lo pagan las penalizaciones de horario laboral y de entre
+  semana, y cobrarlo dos veces sería facturar el mismo día por partida
+  doble. Por eso un viernes 22:00 → domingo sigue saliendo gratis, y un
+  miércoles → sábado carga los dos días extra que de verdad se lleva. Es
+  también el motivo de que la etiqueta del cargo diga «vacaciones» sin
+  número: cubre menos días que la insignia de la fila.
+</p>
 
 <h2 id="alertas">5 · Alertas</h2>
 <p>
