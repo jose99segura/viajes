@@ -33,8 +33,6 @@
       <div class="group">Buscar</div>
       <button id="tabTrips" class="active" data-tip="Ida y vuelta">
         <span class="ico">⇄</span><span class="label">Ida y vuelta</span></button>
-      <button id="tabOneway" data-tip="Solo ida">
-        <span class="ico">→</span><span class="label">Solo ida</span></button>
       <button id="tabCalendar" data-tip="Calendario">
         <span class="ico">▦</span><span class="label">Calendario</span></button>
 
@@ -75,7 +73,7 @@
         </div>
       </div>
 
-      <button class="icon-btn primary" id="chatToggle">💬 Preguntar a la IA</button>
+      <button class="icon-btn primary" id="chatToggle"><span>💬</span><span>Preguntar a la IA</span></button>
     </div>
 
     <div class="content">
@@ -98,6 +96,12 @@
       </div>
 
       <div class="toolbar" id="toolbar">
+        <label class="field" id="lKind"><span>Tipo</span>
+          <select id="fKind">
+            <option value="trips">Ida y vuelta</option>
+            <option value="oneway">Solo ida</option>
+          </select>
+        </label>
         <label class="field"><span>Aeropuerto</span>
           <select id="fAirport"><option value="">Todos</option></select>
         </label>
@@ -142,6 +146,13 @@
             <option value="inbound">Vuelta desde ALC</option>
           </select>
         </label>
+        <label class="field" id="lSort"><span>Ordenar por</span>
+          <span class="sortwrap">
+            <select id="fSort"></select>
+            <button type="button" id="fSortDir" title="Ascendente">▲</button>
+          </span>
+        </label>
+        <label class="toggle" id="lGroup"><input id="fGroup" type="checkbox" checked> agrupar parecidos</label>
         <label class="toggle" id="lSame"><input id="fSame" type="checkbox"> mismo aeropuerto</label>
         <label class="toggle" id="lDirect"><input id="fDirect" type="checkbox"> solo directos</label>
         <div class="grow"></div>
@@ -205,10 +216,12 @@
       </div>
 
       <p class="footnote">
-        <b>Coste efectivo</b> = precio + ajuste por conveniencia de cada trayecto
+        <b>Coste efectivo</b> = billete + ajuste por conveniencia de cada trayecto
         (finde −15 €, viernes tarde −25 €, horario laboral +60 €, entre semana +20 €,
-        madrugón +15 €). Haz clic en una fila para ver la evolución del precio.
-        Actualiza los datos con <code>python -m flighttracker fetch --google</code>.
+        madrugón +15 €, llegar a casa de noche +25 €) + el coche hasta el aeropuerto
+        (gasolina, peajes, tus horas al volante y el parking) + 45 € por cada día
+        de vacaciones que gasta. Actualiza los datos con
+        <code>python -m flighttracker fetch --google</code>.
         <a href="/info">Cómo funciona →</a>
       </p>
     </div>
