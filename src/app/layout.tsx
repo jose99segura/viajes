@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
+import { ChatPanel } from "@/components/chat/ChatPanel";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { sidebarCounts } from "@/db/queries";
 import "./globals.css";
@@ -61,6 +62,7 @@ export default async function RootLayout({
         <div className="shell">
           <Sidebar favorites={counts.favorites} unseen={counts.unseen} />
           <div className="main">{children}</div>
+          <ChatPanel />
         </div>
       </body>
     </html>

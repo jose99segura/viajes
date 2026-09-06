@@ -146,6 +146,17 @@ export async function sidebarCounts(): Promise<{ favorites: number; unseen: numb
   return { favorites: f.n, unseen: u.n };
 }
 
+/** How much history there is: for the chat's system prompt. */
+export async function captureSpan(): Promise<{ n: number; first: string | null; last: string | null }> {
+  const rows = await db.execute(sql.raw(`
+    SELECT count(DISTINCT captured_at)::int AS n,
+           to_char(min(captured_at) AT TIME ZONE 'UTC', ${INSTANT}) AS first,
+           to_char(max(captured_at) AT TIME ZONE 'UTC', ${INSTANT}) AS last
+    FROM fares
+  `));
+  return (rows as unknown as Array<{ n: number; first: string | null; last: string | null }>)[0];
+}
+
 // ---------- one flight, for favourites ----------
 
 export interface CurrentPrice {

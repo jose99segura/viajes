@@ -1,9 +1,7 @@
+import { ChatToggle } from "@/components/chat/ChatToggle";
 import { ThemeMenu } from "./ThemeMenu";
 
-/**
- * Sticky page header: title, the snapshot age, the theme menu. The chat
- * toggle joins it when the chat panel is ported.
- */
+/** Sticky page header: title, the snapshot age, theme menu, chat toggle. */
 export function Topbar({
   title,
   meta,
@@ -20,6 +18,7 @@ export function Topbar({
       <div className="grow" />
       {children}
       <ThemeMenu />
+      <ChatToggle />
     </div>
   );
 }
