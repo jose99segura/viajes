@@ -9,7 +9,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
-DB_PATH = ROOT / "prices.db"
+# Deployments (Docker/Coolify) point this at a mounted volume so the price
+# history survives a redeploy; locally it stays next to the code.
+DB_PATH = Path(os.environ.get("FLIGHTTRACKER_DB") or ROOT / "prices.db")
 ENV_PATH = ROOT / ".env"
 
 

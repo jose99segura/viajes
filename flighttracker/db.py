@@ -91,8 +91,14 @@ CREATE TABLE IF NOT EXISTS favorites (
 
 
 def connect(path: Path = DB_PATH) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
+    # The dashboard and the fetcher are separate processes writing the same
+    # file. WAL lets a reader work while a write is in flight; busy_timeout
+    # makes the other one wait its turn instead of raising SQLITE_BUSY.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.executescript(SCHEMA)
     _migrate(conn)
     return conn

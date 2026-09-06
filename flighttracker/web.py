@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import json
+import os
 
 from flask import Flask, Response, jsonify, redirect, request, send_from_directory
 
@@ -353,7 +354,10 @@ def chat_status():
 
 
 def main() -> None:
-    app.run(host="127.0.0.1", port=5010, debug=False)
+    # 0.0.0.0 inside a container, otherwise nothing outside it can connect.
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "5010"))
+    app.run(host=host, port=port, debug=False)
 
 
 if __name__ == "__main__":

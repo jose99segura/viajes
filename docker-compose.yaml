@@ -1,0 +1,54 @@
+services:
+  web:
+    build: .
+    environment:
+      # Coolify fills this in with the domain you assign to the service.
+      - SERVICE_FQDN_WEB_5010
+      - FLIGHTTRACKER_DB=/data/prices.db
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-}
+    volumes:
+      - prices:/data
+    restart: unless-stopped
+    # ~5 GB free on a host shared with Postgres, Garage and n8n: cap it so a
+    # runaway here cannot take the neighbours down with it.
+    mem_limit: 768m
+    # The host has no global log rotation; an SSE app plus a 6-hourly
+    # scraper would otherwise grow json-file logs without bound.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://127.0.0.1:5010/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Scrapes prices into the same SQLite file the dashboard reads.
+  fetcher:
+    build: .
+    environment:
+      - FLIGHTTRACKER_DB=/data/prices.db
+      # How often to scrape, in seconds. Default: 6 hours.
+      - FETCH_INTERVAL=${FETCH_INTERVAL:-21600}
+    volumes:
+      - prices:/data
+    restart: unless-stopped
+    mem_limit: 512m
+    # The host has no global log rotation; an SSE app plus a 6-hourly
+    # scraper would otherwise grow json-file logs without bound.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    entrypoint: ["sh", "-c"]
+    command:
+      - 'while true; do python -m flighttracker fetch --google || true; sleep "$$FETCH_INTERVAL"; done'
+
+volumes:
+  prices:

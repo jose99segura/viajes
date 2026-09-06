@@ -1,4 +1,5 @@
 .env
+env.prod
 prices.db
 __pycache__/
 *.pyc

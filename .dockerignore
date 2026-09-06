@@ -1,0 +1,8 @@
+.git
+.venv
+venv/
+.claude
+__pycache__/
+*.pyc
+prices.db
+.env
