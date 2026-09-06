@@ -7,6 +7,11 @@ services:
       - FLIGHTTRACKER_DB=/data/prices.db
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-}
+    # Coolify reads this to build the Traefik route. Without it the dashboard
+    # is published on port 3000 -- nothing listens there, so every request is
+    # a 502 even though the container is healthy.
+    expose:
+      - "5010"
     volumes:
       - prices:/data
     restart: unless-stopped
