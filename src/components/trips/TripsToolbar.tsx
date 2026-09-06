@@ -29,10 +29,15 @@ export function TripsToolbar({
   values,
   airports,
   count,
+  depart,
+  clearDepartHref,
 }: {
   values: ToolbarValues;
   airports: string[];
   count: string;
+  /** A departure day the calendar narrowed the list to, if any. */
+  depart?: string;
+  clearDepartHref?: string;
 }) {
   const form = useRef<HTMLFormElement>(null);
   const submit = () => form.current?.requestSubmit();
@@ -41,6 +46,7 @@ export function TripsToolbar({
     <form ref={form} method="get" action="/" className="toolbar" id="toolbar">
       {values.sort && <input type="hidden" name="sort" value={values.sort} />}
       {values.dir && <input type="hidden" name="dir" value={values.dir} />}
+      {depart && <input type="hidden" name="depart" value={depart} />}
 
       <label className="field">
         <span>Aeropuerto</span>
@@ -138,6 +144,11 @@ export function TripsToolbar({
       </label>
 
       <div className="grow" />
+      {depart && clearDepartHref && (
+        <a href={clearDepartHref} className="book-link small muted" title="Quitar el día">
+          {depart} ✕
+        </a>
+      )}
       <div className="count">{count}</div>
     </form>
   );

@@ -146,6 +146,163 @@ export async function sidebarCounts(): Promise<{ favorites: number; unseen: numb
   return { favorites: f.n, unseen: u.n };
 }
 
+// ---------- one flight, for favourites ----------
+
+export interface CurrentPrice {
+  price: number;
+  currency: string;
+  airline: string | null;
+  stops: number;
+  source: string;
+  capturedAt: string;
+}
+
+/**
+ * Cheapest fare for one flight in the most recent capture. Both providers
+ * can list the same departure, so take the best of them, not an arbitrary
+ * row — otherwise a saved trip appears to jump in price.
+ */
+export async function currentPrice(
+  origin: string,
+  destination: string,
+  departure: string,
+): Promise<CurrentPrice | null> {
+  const rows = await db.execute(sql`
+    SELECT price::float8 AS price, currency, airline, stops, source,
+           to_char(captured_at AT TIME ZONE 'UTC', ${sql.raw(INSTANT)}) AS captured_at
+    FROM fares
+    WHERE origin = ${origin} AND destination = ${destination}
+      AND departure = CAST(${departure} AS timestamp)
+      AND captured_at = (
+        SELECT max(captured_at) FROM fares
+        WHERE origin = ${origin} AND destination = ${destination}
+          AND departure = CAST(${departure} AS timestamp))
+    ORDER BY price ASC LIMIT 1
+  `);
+  const r = (rows as unknown as Array<Omit<CurrentPrice, "capturedAt"> & { captured_at: string }>)[0];
+  return r ? { ...r, capturedAt: r.captured_at } : null;
+}
+
+/** Min/max price ever seen for one flight, to show the trend. */
+export async function priceExtremes(
+  origin: string,
+  destination: string,
+  departure: string,
+): Promise<{ lo: number; hi: number; n: number } | null> {
+  const rows = await db.execute(sql`
+    SELECT min(price)::float8 AS lo, max(price)::float8 AS hi, count(*)::int AS n
+    FROM fares
+    WHERE origin = ${origin} AND destination = ${destination}
+      AND departure = CAST(${departure} AS timestamp)
+  `);
+  const r = (rows as unknown as Array<{ lo: number | null; hi: number | null; n: number }>)[0];
+  return r && r.lo !== null && r.hi !== null ? { lo: r.lo, hi: r.hi, n: r.n } : null;
+}
+
+export async function currentPackage(
+  origin: string,
+  destination: string,
+  outDate: string,
+  nights: number,
+): Promise<{ price: number; currency: string; source: string } | null> {
+  const rows = await db.execute(sql`
+    SELECT price::float8 AS price, currency, source FROM package_fares
+    WHERE origin = ${origin} AND destination = ${destination}
+      AND out_date = CAST(${outDate} AS date) AND nights = ${nights}
+    ORDER BY captured_at DESC LIMIT 1
+  `);
+  return (rows as unknown as Array<{ price: number; currency: string; source: string }>)[0] ?? null;
+}
+
+export async function packageExtremes(
+  origin: string,
+  destination: string,
+  outDate: string,
+  nights: number,
+): Promise<{ lo: number; hi: number } | null> {
+  const rows = await db.execute(sql`
+    SELECT min(price)::float8 AS lo, max(price)::float8 AS hi FROM package_fares
+    WHERE origin = ${origin} AND destination = ${destination}
+      AND out_date = CAST(${outDate} AS date) AND nights = ${nights}
+  `);
+  const r = (rows as unknown as Array<{ lo: number | null; hi: number | null }>)[0];
+  return r && r.lo !== null && r.hi !== null ? { lo: r.lo, hi: r.hi } : null;
+}
+
+export interface FavoriteRow {
+  id: number;
+  createdAt: string;
+  kind: string;
+  outOrigin: string;
+  outDestination: string;
+  outDeparture: string;
+  retOrigin: string | null;
+  retDestination: string | null;
+  retDeparture: string | null;
+  note: string | null;
+  priceAtSave: number | null;
+}
+
+export async function listFavorites(): Promise<FavoriteRow[]> {
+  const rows = await db.execute(sql.raw(`
+    SELECT id, kind, out_origin, out_destination, ret_origin, ret_destination, note,
+           to_char(created_at AT TIME ZONE 'UTC', ${INSTANT}) AS created_at,
+           to_char(out_departure, ${WALL}) AS out_departure,
+           to_char(ret_departure, ${WALL}) AS ret_departure,
+           price_at_save::float8 AS price_at_save
+    FROM favorites ORDER BY out_departure
+  `));
+  return (rows as unknown as RawFavorite[]).map((r) => ({
+    id: r.id,
+    createdAt: r.created_at,
+    kind: r.kind,
+    outOrigin: r.out_origin,
+    outDestination: r.out_destination,
+    outDeparture: r.out_departure,
+    retOrigin: r.ret_origin,
+    retDestination: r.ret_destination,
+    retDeparture: r.ret_departure,
+    note: r.note,
+    priceAtSave: r.price_at_save,
+  }));
+}
+
+// ---------- alerts ----------
+
+export type AlertRow = typeof alerts.$inferSelect;
+
+export async function listAlerts(): Promise<AlertRow[]> {
+  return db.select().from(alerts).orderBy(alerts.id);
+}
+
+/** Trip keys not yet looked at, per alert. */
+export async function unseenKeysByAlert(): Promise<Map<number, Set<string>>> {
+  const rows = await db
+    .select({ alertId: alertHits.alertId, tripKey: alertHits.tripKey })
+    .from(alertHits)
+    .where(eq(alertHits.seen, false));
+  const out = new Map<number, Set<string>>();
+  for (const r of rows) {
+    if (!out.has(r.alertId)) out.set(r.alertId, new Set());
+    out.get(r.alertId)!.add(r.tripKey);
+  }
+  return out;
+}
+
+type RawFavorite = {
+  id: number;
+  created_at: string;
+  kind: string;
+  out_origin: string;
+  out_destination: string;
+  out_departure: string;
+  ret_origin: string | null;
+  ret_destination: string | null;
+  ret_departure: string | null;
+  note: string | null;
+  price_at_save: number | null;
+};
+
 type RawFare = {
   origin: string;
   destination: string;

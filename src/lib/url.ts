@@ -15,7 +15,10 @@ export function one(params: Params, key: string): string | undefined {
 
 /**
  * Same params with `patch` applied; a null/undefined/"" value removes the
- * key. Returns "?a=1&b=2", or "" when nothing is left.
+ * key. Returns "?a=1&b=2" — or a bare "?" when nothing is left, which the
+ * browser resolves to the current path with an empty query. Never "": an
+ * empty href points at the current URL, query included, so a "close" or
+ * "page 1" link that cleared the last parameter would go nowhere.
  */
 export function hrefWith(
   params: Params,
@@ -32,5 +35,5 @@ export function hrefWith(
     else q.set(k, String(v));
   }
   const s = q.toString();
-  return `${pathname}${s ? `?${s}` : ""}`;
+  return s ? `${pathname}?${s}` : pathname || "?";
 }

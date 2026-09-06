@@ -1,4 +1,11 @@
 import { Topbar } from "@/components/shell/Topbar";
+import {
+  Badges,
+  DaysOff,
+  LegCell,
+  SortHeader,
+  WhenCell,
+} from "@/components/trips/cells";
 import { DetailCard } from "@/components/trips/DetailCard";
 import { Pager, PAGE_SIZE } from "@/components/trips/Pager";
 import { RowLink } from "@/components/trips/RowLink";
@@ -15,9 +22,6 @@ import {
   fmtEUR,
   fmtEUR0,
   fmtInt,
-  labelParts,
-  stopsES,
-  whenParts,
 } from "@/lib/format";
 import {
   buildTrips,
@@ -123,7 +127,15 @@ export default async function TripsPage({
     .filter((a) => a !== "ALC")
     .sort();
 
-  const { trips: all, lastCaptured } = buildTrips(rows, packages, cfg, filter);
+  const built = buildTrips(rows, packages, cfg, filter);
+  const lastCaptured = built.lastCaptured;
+  // A day clicked on the calendar (or an alert's calendar) narrows the list
+  // to trips leaving that day. Applied before the cap, unlike the old client
+  // filter over the capped list, so a busy day is not cut short.
+  const depart = one(params, "depart");
+  const all = depart
+    ? built.trips.filter((t) => t.out.departure.startsWith(depart))
+    : built.trips;
   const total = all.length;
   const capped = total > TRIP_CAP;
   const trips = all.slice(0, TRIP_CAP);
@@ -201,7 +213,13 @@ export default async function TripsPage({
 
         <TripsToolbar
           airports={airports}
-          count={`${fmtInt(trips.length)} viajes`}
+          count={
+            depart
+              ? `${fmtInt(trips.length)} viajes saliendo el ${depart}`
+              : `${fmtInt(trips.length)} viajes`
+          }
+          depart={depart}
+          clearDepartHref={depart ? hrefWith(params, { depart: null, page: null, sel: null }) : undefined}
           values={{
             airport: filter.airport,
             minNights: filter.minNights,
@@ -252,14 +270,15 @@ export default async function TripsPage({
                 <tr>
                   <th className="starcol" />
                   {COLS.map((c) => (
-                    <th key={c.k} className={c.num ? "num" : undefined}>
-                      <a href={sortHref(c.k)} className="block text-inherit no-underline">
-                        {c.t}
-                        <span className="arrow">
-                          {sortKey === c.k ? (dir === 1 ? "▲" : "▼") : ""}
-                        </span>
-                      </a>
-                    </th>
+                    <SortHeader
+                      key={c.k}
+                      href={sortHref(c.k)}
+                      active={sortKey === c.k}
+                      dir={dir}
+                      num={c.num}
+                    >
+                      {c.t}
+                    </SortHeader>
                   ))}
                 </tr>
               </thead>
@@ -333,69 +352,3 @@ export default async function TripsPage({
   );
 }
 
-export function LegCell({
-  origin,
-  destination,
-  airline,
-  stops,
-}: {
-  origin: string;
-  destination: string;
-  airline: string | null;
-  stops: number;
-}) {
-  return (
-    <span className="leg">
-      <span className="code">
-        {origin}
-        <span className="arr">→</span>
-        {destination}
-      </span>
-      <span className="op">
-        {airline || "–"} ·{" "}
-        <span className={stops ? undefined : "direct"}>{stopsES(stops)}</span>
-      </span>
-    </span>
-  );
-}
-
-export function WhenCell({
-  departure,
-  dateOnly,
-}: {
-  departure: string;
-  dateOnly?: boolean;
-}) {
-  const { day, time } = whenParts(departure);
-  return (
-    <span className="when">
-      <span className="day">{day}</span>
-      {/* Luxair fares carry no departure time; say so rather than show a fake 00:00. */}
-      {dateOnly ? (
-        <span className="time" style={{ color: "var(--muted)" }}>
-          sin hora
-        </span>
-      ) : (
-        <span className="time">{time}</span>
-      )}
-    </span>
-  );
-}
-
-/** 0 days off is the thing worth spotting, so it reads as a win, not a zero. */
-export function DaysOff({ days }: { days: number }) {
-  if (days === 0) return <span className="badge good">ninguno</span>;
-  return <span className={`badge${days <= 1 ? "" : " warn"}`}>{days}</span>;
-}
-
-export function Badges({ label }: { label: string }) {
-  return (
-    <span className="badges">
-      {labelParts(label).map((p, i) => (
-        <span key={i} className={`badge${p.tone ? ` ${p.tone}` : ""}`}>
-          {p.text}
-        </span>
-      ))}
-    </span>
-  );
-}
