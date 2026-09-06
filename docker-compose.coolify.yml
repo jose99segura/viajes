@@ -1,0 +1,82 @@
+# Production deployment for Coolify.
+#
+# ⚠️ NEVER declare a `networks:` block here.
+# Traefik (coolify-proxy) lives on the `coolify` network and Coolify attaches
+# these containers to it. An extra network puts a container on two at once;
+# Traefik then picks one non-deterministically and some container recreations
+# end in permanent 504s. Containers still reach each other by service name.
+#
+# ⚠️ Coolify defaults the compose path to `/docker-compose.yaml`, which is the
+# LOCAL DEVELOPMENT file. Deploying that would start a second, empty Postgres
+# and ignore `postgres-shared` entirely — the app would boot, look healthy and
+# write nowhere useful. Set "Docker compose location" to this file explicitly.
+#
+# Differences from docker-compose.yml (local dev):
+#   - no database of its own; it uses the shared `postgres-shared`
+#   - no host port bindings; Traefik reaches the app over the network
+#   - every secret comes from Coolify's environment, never from this file
+#
+# MEMORY BUDGET — host: 8 GB total, shared. Coolify itself and its
+# Postgres/Redis take roughly 1.5 GB, n8n's stack about 1 GB, postgres-shared
+# and garage-shared about 0.7 GB. The ceilings below leave comfortable
+# headroom. A service exceeding ITS OWN mem_limit is OOM-killed (exit 137)
+# even with GB free on the box. Diagnose with `dmesg | grep -i oom`, and tell
+# exit 137 (kernel) apart from exit 1 (application error).
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    # Read-mostly: queries, scoring and server-rendered pages. The round-trip
+    # pairing is the memory-hungry part and it is bounded by the fare count.
+    mem_limit: 512m
+    environment:
+      # `?err` makes the container fail loudly at start rather than booting
+      # into a broken state.
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in Coolify}
+
+      # The chat panel is optional and the app must work without a key,
+      # exactly as it does today — so these are `:-` defaults, not `:?`.
+      # A `?err` here would turn an optional feature into a boot failure.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.7-flash}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+      NODE_ENV: production
+    expose:
+      - "3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # The Python side: the three providers, unchanged, writing into the same
+  # Postgres. It idles, and a Coolify Scheduled Task runs the fetch inside it
+  # — see docs/deployment.md. Deliberately has no `expose`: nothing should
+  # ever reach it over the network.
+  fetcher:
+    build:
+      context: .
+      dockerfile: Dockerfile.fetcher
+    restart: unless-stopped
+    logging: *default-logging
+    # Only ever busy during a scheduled run. fast-flights parses protobuf
+    # responses for one date at a time, so the peak is modest.
+    mem_limit: 512m
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in Coolify}

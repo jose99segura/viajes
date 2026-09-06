@@ -14,3 +14,9 @@ flask>=3.0
 # Google Flights provider. The Ryanair provider works without it, so the app
 # degrades gracefully if this fails to install.
 fast-flights>=3.1
+# fast-flights imports typing_extensions but does not declare it. On Windows
+# it happens to be present through another package; in the python:3.12-slim
+# fetcher image it is not, so `import fast_flights` raises and the Google
+# provider degrades to nothing -- taking LUX with it, since Ryanair does not
+# fly there. Pin it here rather than rely on the accident.
+typing_extensions>=4.12
