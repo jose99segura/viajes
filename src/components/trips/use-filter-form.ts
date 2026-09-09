@@ -41,12 +41,17 @@ export function useFilterForm(action: string) {
     const y = restoreTo.current;
     if (y === null) return;
     restoreTo.current = null;
-    // Clamp: a narrower result set can be shorter than the old scroll
-    // position, and scrolling past the end just lands at the bottom.
-    window.scrollTo({
-      top: Math.min(y, document.documentElement.scrollHeight - window.innerHeight),
-      behavior: "instant" as ScrollBehavior,
-    });
+    // Two frames, not zero: the router resets the scroll after this effect
+    // runs, so restoring synchronously is overwritten and the page still
+    // lands at the top. Waiting until after the next paint puts it back
+    // once the navigation has finished moving it.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        // Clamp: a narrower result set can be shorter than the old position.
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        window.scrollTo({ top: Math.min(y, Math.max(0, max)), behavior: "instant" as ScrollBehavior });
+      }),
+    );
   });
 
   const submit = () => {
