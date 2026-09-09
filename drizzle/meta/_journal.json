@@ -8,6 +8,13 @@
       "when": 1788440222316,
       "tag": "0000_lovely_union_jack",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788980846363,
+      "tag": "0001_misty_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }

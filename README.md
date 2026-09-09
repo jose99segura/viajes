@@ -13,6 +13,39 @@ deployed on a personal OVH VPS through Coolify; see
 [docs/deployment.md](docs/deployment.md). There is no login and no object
 storage: it is a single-user personal tool holding flight prices.
 
+## Architecture
+
+Two halves over one database, and one configuration file that keeps them
+honest.
+
+**Fetchers** (`flighttracker/providers/`) are independent: Ryanair's fare
+finder, Google Flights over its protobuf protocol, and Luxair's price calendar.
+Each one owns its quirks and returns the same shape. A provider that fails does
+not stop the others, so a broken source costs you that route, not the run.
+
+**Persistence** is append only. Every run writes exactly one snapshot rather
+than updating rows in place, which is what makes the price history charts
+possible and makes a re-run harmless.
+
+**Scoring** exists twice, in `flighttracker/scoring.py` and `src/lib/scoring.ts`,
+and both parse the same `config.yaml` at runtime. The weights live in one place,
+so the two implementations cannot drift; `pnpm test` includes an equivalence
+test that fails if they do.
+
+**Alert rules** are re-evaluated after every fetch against the fresh snapshot,
+and the run records which matches are new. State lives in the database, not in
+the process, so restarting the container never re-notifies.
+
+**Degradation is deliberate.** An airport with no measured drive time simply
+costs nothing on the ground instead of raising. Luxair publishes no departure
+times, so those fares are scored on day of week only and the UI says "sin hora"
+rather than inventing one. Adding a route before you have all the data makes the
+model less precise, never broken.
+
+**Scheduling** is a Coolify scheduled task that `docker exec`s into an idle
+fetcher container daily at 09:00. The schedule is visible in the Coolify UI
+rather than buried in a crontab inside the image.
+
 ## Effective cost
 
 Everything the UI ranks is scored the same way:
@@ -59,6 +92,41 @@ the trips view, or bake it into an alert.
 Round-trip pairing and filtering happen **server-side**: there are tens of
 thousands of pairings, and a global top-N would hide every LUX trip behind
 cheaper Ryanair ones.
+
+## Observability
+
+The fetcher runs unattended once a day inside a container, so it has to be able
+to tell you it is broken. Four things do that.
+
+**Structured logs.** Every provider attempt writes one JSON line to stdout with
+`provider`, `route`, `status`, `fares_found`, `fares_stored` and `duration_ms`
+(`flighttracker/obs.py`). The fields are values, not prose, so the log is
+queryable: `docker logs viajes-fetcher | jq 'select(.status != "ok")'`.
+
+**Retries with backoff.** Transient failures — a timeout, a dropped connection,
+a 429 or a 5xx — are retried three times with exponential backoff and jitter
+(`flighttracker/retry.py`). A 404 is not retried: on Ryanair it means the route
+is not operated, which is an answer, not a failure.
+
+**A validation gate.** A provider that answers with less than a quarter of what
+its last successful run found is not trusted, and nothing is written. Comparing
+against that step's own history rather than a constant is what lets one route
+have twenty fares and another two hundred. With no history the gate always
+accepts, so it never blocks a route being added.
+
+**A record of every attempt.** `fetch_runs` holds one append-only row per
+provider per run, with `ok`, `failed` or `suspect` and the reason. `failed`
+means the provider did not answer; `suspect` means it did and the answer looked
+wrong. The two have different fixes, so the status distinguishes them.
+
+```bash
+python -m flighttracker runs          # did the 09:00 fetch work
+```
+
+When anything in a run ends other than `ok`, one message goes to
+`ALERT_WEBHOOK_URL` if it is set (Slack, Discord, an n8n webhook) and to stderr
+regardless. One message per run, not one per failure: an outage fails every
+route a provider serves, and five routes must not become five alerts.
 
 ## Data sources
 

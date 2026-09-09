@@ -7,64 +7,132 @@ from datetime import datetime, timedelta
 from tabulate import tabulate
 
 from . import db
+from . import obs
 from .config import load_config
 from . import alerts as alerts_mod
 from .providers import google, luxair, ryanair
 from .scoring import airport_ground, convenience_adjustment
 
 
+# A provider that answers with far less than last time is more likely to be
+# broken than the market is to have emptied. The gate is a ratio rather than a
+# fixed floor, because 200 fares dropping to 3 and 20 dropping to 0 are the
+# same event at two different scales.
+SUSPECT_RATIO = 0.25
+
+# Below this, a drop is noise. A route with 4 fares can legitimately have 1
+# tomorrow, and alerting on that would train you to ignore the alerts.
+SUSPECT_MIN_BASELINE = 8
+
+
+def _trusted(conn, provider: str, route: str | None, found: int, s) -> bool:
+    """Should this answer be written to the snapshot?
+
+    Compares against the last attempt at the same step that succeeded, not
+    against a constant: what "normal" means for HHN-ALC and for LUX-ALC are
+    different numbers, and hard coding either would be wrong for the other.
+
+    With no baseline the answer is always yes. A gate that blocks the first
+    run of a new route is a gate that stops the system from growing.
+    """
+    baseline = db.last_ok_count(conn, provider, route)
+    if baseline is None or baseline < SUSPECT_MIN_BASELINE:
+        return True
+    if found >= baseline * SUSPECT_RATIO:
+        return True
+    s.suspect(f"found {found} fares, last good run found {baseline}")
+    return False
+
+
+def _record(conn, captured_at: str, s) -> None:
+    db.record_run(conn, captured_at, s.provider, s.route, s.status,
+                  s.found, s.stored, s.duration_ms, s.error)
+
+
 def cmd_fetch(args: argparse.Namespace) -> None:
+    obs.configure()
     cfg = load_config()
     conn = db.connect()
     captured_at = db.run_timestamp()
     total = 0
+
     for route in cfg.routes:
         origin, dest = route["origin"], route["destination"]
-        try:
+        leg = f"{origin}-{dest}"
+        with obs.step("ryanair", leg) as s:
             fares = ryanair.fetch(origin, dest, cfg.months_ahead, cfg.currency)
-        except Exception as exc:  # noqa: BLE001 - keep tracking other routes
-            print(f"  {origin}->{dest} ryanair FAILED: {exc}", file=sys.stderr)
-            continue
-        n = db.insert_fares(conn, fares, captured_at) if fares else 0
-        total += n
-        note = "" if fares else "  (no Ryanair route)"
-        print(f"  {origin}->{dest} ryanair: {n} fares{note}")
+            s.found = len(fares)
+            if fares and _trusted(conn, "ryanair", leg, s.found, s):
+                s.stored = db.insert_fares(conn, fares, captured_at)
+                total += s.stored
+        _record(conn, captured_at, s)
 
     for origin, dest in cfg.luxair.routes:
-        try:
+        leg = f"{origin}-{dest}"
+        with obs.step("luxair", leg) as s:
             pkgs = luxair.fetch(origin, dest, cfg.months_ahead,
                                 cfg.luxair.nights, cfg.currency)
-        except Exception as exc:  # noqa: BLE001
-            print(f"  {origin}->{dest} luxair FAILED: {exc}", file=sys.stderr)
-            continue
-        n = db.insert_packages(conn, pkgs, captured_at) if pkgs else 0
-        total += n
-        cheapest = f", desde {min(p['price'] for p in pkgs):.0f} EUR" if pkgs else ""
-        print(f"  {origin}->{dest} luxair: {n} round-trip fares{cheapest}")
+            s.found = len(pkgs)
+            if pkgs and _trusted(conn, "luxair", leg, s.found, s):
+                s.stored = db.insert_packages(conn, pkgs, captured_at)
+                total += s.stored
+        _record(conn, captured_at, s)
 
     if args.google:
         if not google.AVAILABLE:
-            print("fast-flights not installed; skipping Google Flights", file=sys.stderr)
+            # Not a failed attempt: the dependency is optional by design, and
+            # recording it as a failure would fire an alert on every run of a
+            # machine that never had it.
+            obs.log.warning("fast-flights not installed, skipping Google Flights")
         else:
             weeks = args.google_weeks or cfg.google.weeks
             days = _sample_days(weeks, cfg.google.weekdays)
-            print(f"  google: sampling {len(days)} days over {weeks} weeks")
             for route in cfg.routes:
                 origin, dest = route["origin"], route["destination"]
-                found = direct = 0
-                for day in days:
-                    try:
-                        fares = google.fetch_day(origin, dest, day, cfg.currency)
-                    except Exception as exc:  # noqa: BLE001
-                        print(f"  {origin}->{dest} {day} google FAILED: {exc}", file=sys.stderr)
-                        continue
-                    if fares:
-                        total += db.insert_fares(conn, fares, captured_at)
-                        found += len(fares)
-                        direct += sum(1 for f in fares if f.get("stops") == 0)
-                print(f"  {origin}->{dest} google: {found} fares ({direct} non-stop)")
+                leg = f"{origin}-{dest}"
+                # Google is sampled day by day, so one bad day must not lose
+                # the other forty. Failures are counted and reported once for
+                # the route rather than aborting it.
+                with obs.step("google", leg) as s:
+                    collected: list[dict] = []
+                    day_failures = 0
+                    for day in days:
+                        try:
+                            collected.extend(
+                                google.fetch_day(origin, dest, day, cfg.currency))
+                        except Exception as exc:  # noqa: BLE001 - one day, not the route
+                            day_failures += 1
+                            obs.log.warning("google day failed", extra={
+                                "route": leg, "day": day.isoformat(),
+                                "error": str(exc)})
+                    s.found = len(collected)
+                    if day_failures:
+                        s.error = f"{day_failures}/{len(days)} days failed"
+                    if collected and _trusted(conn, "google", leg, s.found, s):
+                        s.stored = db.insert_fares(conn, collected, captured_at)
+                        total += s.stored
+                _record(conn, captured_at, s)
+
+    obs.log.info("fetch finished", extra={
+        "captured_at": captured_at, "fares_stored": total})
+    obs.notify_failures(captured_at)
     print(f"Stored {total} fares.")
     _print_alerts(alerts_mod.evaluate(cfg, conn, record=True), only_new=True)
+
+
+def cmd_runs(args: argparse.Namespace) -> None:
+    """Answer "did the 09:00 fetch work" without reading container logs."""
+    conn = db.connect()
+    rows = db.recent_runs(conn, args.limit)
+    if not rows:
+        print("No runs recorded yet.")
+        return
+    print(tabulate(
+        [[r["captured_at"][:16], r["provider"], r["route"] or "", r["status"],
+          r["fares_found"], r["fares_stored"], f"{r['duration_ms']}ms",
+          (r["error"] or "")[:60]] for r in rows],
+        headers=["run", "provider", "route", "status", "found", "stored",
+                 "took", "error"]))
 
 
 def _fmt_trip(c: dict) -> str:
@@ -220,6 +288,10 @@ def main() -> None:
 
     p_alerts = sub.add_parser("alerts", help="show current matches for every alert rule")
     p_alerts.set_defaults(func=cmd_alerts)
+
+    p_runs = sub.add_parser("runs", help="recent fetch attempts and their outcome")
+    p_runs.add_argument("--limit", type=int, default=30)
+    p_runs.set_defaults(func=cmd_runs)
 
     p_models = sub.add_parser("models", help="list Gemini models your key can use")
     p_models.set_defaults(func=cmd_models)

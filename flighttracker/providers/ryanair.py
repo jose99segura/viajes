@@ -10,6 +10,8 @@ from datetime import date
 
 import requests
 
+from .. import retry
+
 API = (
     "https://www.ryanair.com/api/farfnd/v4/oneWayFares/"
     "{origin}/{destination}/cheapestPerDay"
@@ -37,7 +39,8 @@ def fetch(origin: str, destination: str, months_ahead: int, currency: str) -> li
     session = requests.Session()
     for month_start in _month_starts(months_ahead):
         url = API.format(origin=origin.upper(), destination=destination.upper())
-        resp = session.get(
+        resp = retry.get(
+            session,
             url,
             params={
                 "outboundMonthOfDate": month_start.isoformat(),

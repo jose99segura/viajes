@@ -474,3 +474,66 @@ def mark_alert_seen(conn: Connection, alert_id: int | None = None) -> None:
     else:
         conn.execute("UPDATE alert_hits SET seen = true WHERE alert_id = ?", (alert_id,))
     conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Fetch runs
+#
+# `fetch_runs` is written by the fetcher and read by the validation gate. It
+# is the only table whose rows describe the pipeline rather than the fares,
+# which is why it lives at the bottom, apart from the rest.
+# ---------------------------------------------------------------------------
+
+
+def record_run(
+    conn: Connection,
+    captured_at: str,
+    provider: str,
+    route: str | None,
+    status: str,
+    fares_found: int = 0,
+    fares_stored: int = 0,
+    duration_ms: int = 0,
+    error: str | None = None,
+) -> None:
+    """Append one row describing a provider attempt.
+
+    Committed immediately rather than at the end of the run: if the process
+    dies half way through, the attempts that already happened must still be
+    on record. A crash you cannot see is the thing this table exists to stop.
+    """
+    conn.execute(
+        """INSERT INTO fetch_runs
+           (captured_at, provider, route, status, fares_found, fares_stored,
+            duration_ms, error)
+           VALUES (?,?,?,?,?,?,?,?)""",
+        (captured_at, provider, route, status, fares_found, fares_stored,
+         duration_ms, error),
+    )
+    conn.commit()
+
+
+def last_ok_count(conn: Connection, provider: str, route: str | None) -> int | None:
+    """How many fares the last successful attempt at this step found.
+
+    Returns None when there is no successful attempt on record, which is what
+    the validation gate treats as "no baseline, accept whatever arrives".
+    A gate with no history must not block the first run.
+    """
+    rows = conn.execute(
+        """SELECT fares_found FROM fetch_runs
+           WHERE provider = ? AND route IS NOT DISTINCT FROM ? AND status = 'ok'
+           ORDER BY captured_at DESC LIMIT 1""",
+        (provider, route),
+    ).fetchall()
+    return int(rows[0]["fares_found"]) if rows else None
+
+
+def recent_runs(conn: Connection, limit: int = 50) -> list[Row]:
+    """The last attempts, newest first. Powers `python -m flighttracker runs`."""
+    return conn.execute(
+        """SELECT captured_at, provider, route, status, fares_found,
+                  fares_stored, duration_ms, error
+           FROM fetch_runs ORDER BY id DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
