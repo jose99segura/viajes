@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useSyncExternalStore } from "react";
 
 /**
@@ -27,11 +27,14 @@ function subscribeToHtmlClass(onChange: () => void) {
 const isCollapsed = () =>
   document.documentElement.classList.contains("nav-collapsed");
 
-// One-way is not a nav entry: it is the "Tipo" field on the search page, so
-// the same entry stays lit for both of its modes.
+// One-way is both a nav entry and the "Tipo" field on the search page: same
+// page, two modes, reachable either way. The entry exists because the field
+// alone is not discoverable — you have to open a dropdown to find out the
+// mode is there at all. `kind` is what decides which of the two is lit.
 const NAV = [
   { group: "Buscar" },
-  { href: "/", icon: "⇄", label: "Ida y vuelta" },
+  { href: "/", icon: "⇄", label: "Ida y vuelta", kind: "trips" },
+  { href: "/?kind=oneway", icon: "→", label: "Solo ida", kind: "oneway" },
   { href: "/calendario", icon: "▦", label: "Calendario" },
   { href: "/alertas", icon: "◔", label: "Alertas", badge: "unseen" },
   { group: "Guardado" },
@@ -48,6 +51,8 @@ export function Sidebar({
   unseen: number;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const kind = searchParams.get("kind") === "oneway" ? "oneway" : "trips";
   const collapsed = useSyncExternalStore(
     subscribeToHtmlClass,
     isCollapsed,
@@ -94,7 +99,13 @@ export function Sidebar({
             <Link
               key={item.href}
               href={item.href}
-              className={pathname === item.href ? "active" : undefined}
+              className={
+                ("kind" in item
+                  ? pathname === "/" && kind === item.kind
+                  : pathname === item.href)
+                  ? "active"
+                  : undefined
+              }
               data-tip={item.label}
             >
               <span className="ico">{item.icon}</span>
