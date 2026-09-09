@@ -35,17 +35,22 @@ luxair:
   # (see `python -m flighttracker luxair-durations`).
   nights: [3, 4, 5, 7, 10, 14]
 
-# Getting to the airport. You drive, so a cheap fare from a far airport is not
-# actually cheap: fuel, wear, tolls, parking and the hours at the wheel are all
-# part of the price. Distances and times are from home, one way.
+# Getting to the airport. Turned OFF: the rates below are zero, so no trip is
+# charged for driving or parking and the "Coche" column disappears from the
+# UI. The distances stay because they cost nothing to keep and are tedious to
+# measure again -- put the rates back (0.22 and 12 were the originals) and the
+# whole model comes back with them, on both the app and the fetcher, since
+# both read this file.
 travel:
-  eur_per_km: 0.22     # fuel + wear + tolls
-  eur_per_hour: 12     # what an hour at the wheel is worth to you
+  eur_per_km: 0
+  eur_per_hour: 0
+  # parking_per_day is a separate term from the rates above, so it has to be
+  # zeroed too. Originals: LUX 7, SCN 4, HHN 5, CRL 7.
   airports:
-    LUX: {km: 8,   drive_minutes: 15,  parking_per_day: 7}
-    SCN: {km: 95,  drive_minutes: 70,  parking_per_day: 4}
-    HHN: {km: 155, drive_minutes: 105, parking_per_day: 5}
-    CRL: {km: 200, drive_minutes: 135, parking_per_day: 7}
+    LUX: {km: 8,   drive_minutes: 15,  parking_per_day: 0}
+    SCN: {km: 95,  drive_minutes: 70,  parking_per_day: 0}
+    HHN: {km: 155, drive_minutes: 105, parking_per_day: 0}
+    CRL: {km: 200, drive_minutes: 135, parking_per_day: 0}
 
 # Convenience scoring: we convert "inconvenience" into euros and add it to the
 # ticket price to get an *effective cost*. Lower effective cost = better deal

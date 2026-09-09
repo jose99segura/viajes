@@ -66,7 +66,7 @@ const SORTS: Record<string, (t: Trip) => number | string> = {
   when: (t) => t.out.label,
 };
 
-const COLS: Array<{ k: string; t: string; num?: boolean }> = [
+const ALL_COLS: Array<{ k: string; t: string; num?: boolean }> = [
   { k: "out_route", t: "Ida" },
   { k: "out_dep", t: "Salida" },
   { k: "ret_route", t: "Vuelta" },
@@ -79,6 +79,15 @@ const COLS: Array<{ k: string; t: string; num?: boolean }> = [
   { k: "effective", t: "Efectivo", num: true },
   { k: "when", t: "Cuándo" },
 ];
+
+/**
+ * "Coche" is dropped when the ground model is off (all rates zero in
+ * config.yaml) — a column of dashes on every row is noise. Decided from the
+ * data rather than from a flag, so it comes back on its own the moment the
+ * rates are set again.
+ */
+const columnsFor = (hasGround: boolean) =>
+  hasGround ? ALL_COLS : ALL_COLS.filter((c) => c.k !== "ground");
 
 /** Same names and defaults as the Flask /api/trips + the old toolbar. */
 function filterFrom(p: Params): TripFilter {
@@ -193,6 +202,12 @@ export default async function TripsPage({
   const pages = Math.max(1, Math.ceil(rowsToShow.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number(one(params, "page")) || 1), pages);
   const pageRows = rowsToShow.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Any ground cost at all in this result set? Checked over the whole list,
+  // not the current page, so the header does not appear and vanish as you
+  // page through.
+  const hasGround = all.some((t) => t.ground !== 0);
+  const COLS = columnsFor(hasGround);
 
   const sel = one(params, "sel");
   const selected = sel ? trips.find((t) => tripKey(t) === sel) : undefined;
@@ -363,9 +378,11 @@ export default async function TripsPage({
                         {t.isPackage && <> <span className="badge">paq.</span></>}
                       </td>
                       <td className="num adj">{fmtAdj(t.adjustment)}</td>
-                      <td className="num adj" title={t.groundLabel}>
-                        <GroundCell ground={t.ground} />
-                      </td>
+                      {hasGround && (
+                        <td className="num adj" title={t.groundLabel}>
+                          <GroundCell ground={t.ground} />
+                        </td>
+                      )}
                       <td className="num">
                         <span className="eff">{fmtEUR(t.effective)}</span>
                       </td>

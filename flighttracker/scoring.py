@@ -85,6 +85,11 @@ def airport_ground(code: str, t: Travel,
     a: Airport | None = t.airports.get((code or "").upper())
     if a is None:
         return 0.0, ""
+    # Rates all zero: the ground model is switched off in config.yaml. Return
+    # no label as well as no cost -- "3h30 de coche" next to +0 EUR reads as
+    # a bug, and the UI hides the column when every row is zero.
+    if not (t.eur_per_km or t.eur_per_hour or a.parking_per_day):
+        return 0.0, ""
     drive = 2 * (a.km * t.eur_per_km + a.drive_minutes / 60 * t.eur_per_hour)
     label = f"{_fmt_hours(2 * a.drive_minutes)} de coche"
     total = drive

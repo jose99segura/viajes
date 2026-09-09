@@ -178,6 +178,10 @@ export function airportGround(
 ): [number, string] {
   const a: Airport | undefined = t.airports[(code || "").toUpperCase()];
   if (!a) return [0, ""];
+  // Rates all zero: the ground model is switched off in config.yaml. Return
+  // no label as well as no cost — "3h30 de coche" next to +0 € reads as a
+  // bug, and the UI hides the column when every row is zero.
+  if (!t.eurPerKm && !t.eurPerHour && !a.parkingPerDay) return [0, ""];
   const drive = 2 * (a.km * t.eurPerKm + (a.driveMinutes / 60) * t.eurPerHour);
   let label = `${fmtHours(2 * a.driveMinutes)} de coche`;
   let total = drive;

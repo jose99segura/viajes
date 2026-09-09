@@ -62,7 +62,7 @@ const SORTS: Record<string, (f: Flight) => number | string> = {
   source: (f) => f.source,
 };
 
-const COLS: Array<{ k: string; t: string; num?: boolean }> = [
+const ALL_COLS: Array<{ k: string; t: string; num?: boolean }> = [
   { k: "route", t: "Vuelo" },
   { k: "departure", t: "Salida" },
   { k: "price", t: "Precio", num: true },
@@ -72,6 +72,10 @@ const COLS: Array<{ k: string; t: string; num?: boolean }> = [
   { k: "label", t: "Cuándo" },
   { k: "source", t: "Fuente" },
 ];
+
+/** Same rule as the trips table: no "Coche" when the model is switched off. */
+const columnsFor = (hasGround: boolean) =>
+  hasGround ? ALL_COLS : ALL_COLS.filter((c) => c.k !== "ground");
 
 function flightFav(f: Flight): FavoriteInput {
   return {
@@ -159,6 +163,9 @@ export async function OneWayView({
   const pages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number(one(params, "page")) || 1), pages);
   const pageRows = shown.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const hasGround = flights.some((f) => f.ground !== 0);
+  const COLS = columnsFor(hasGround);
 
   const sel = one(params, "sel");
   const selected = sel ? shown.find((f) => f.key === sel) : undefined;
@@ -275,9 +282,11 @@ export async function OneWayView({
                       </td>
                       <td className="num">{fmtEUR(f.price)}</td>
                       <td className="num adj">{fmtAdj(f.adjustment)}</td>
-                      <td className="num adj" title={f.groundLabel}>
-                        <GroundCell ground={f.ground} />
-                      </td>
+                      {hasGround && (
+                        <td className="num adj" title={f.groundLabel}>
+                          <GroundCell ground={f.ground} />
+                        </td>
+                      )}
                       <td className="num">
                         <span className="eff">{fmtEUR(f.effective)}</span>
                       </td>
