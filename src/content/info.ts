@@ -4,18 +4,18 @@
  * rendered with dangerouslySetInnerHTML rather than transcribed into JSX,
  * where the SVG attributes alone would be a hundred chances to drift.
  *
- * It still describes the Flask/SQLite era in places (SQLite, the Windows
- * scheduler). The README rewrite revises it.
+ * Kept current by hand where it went stale after the rewrite: the
+ * architecture section, and the ground-cost section, which now says the
+ * model is switched off.
  */
 export const INFO_HTML = `
 <h1>Cómo funciona esto por dentro</h1>
 <p class="lede">
   Un rastreador de precios para volar entre Luxemburgo / Saarbrücken /
   Frankfurt-Hahn y Alicante. Captura tarifas de tres fuentes distintas,
-  las guarda con histórico en SQLite, y las ordena no por precio sino por
-  <b>coste efectivo</b>: lo que cuesta el billete más lo que te cuesta a
-  ti en tiempo, días de vacaciones y kilómetros de coche hasta el
-  aeropuerto.
+  las guarda con histórico en Postgres, y las ordena no por precio sino por
+  <b>coste efectivo</b>: lo que cuesta el billete más lo que te cuesta a ti
+  en horarios y en días de vacaciones.
 </p>
 
 <div class="toc">
@@ -35,9 +35,12 @@ export const INFO_HTML = `
 
 <h2 id="arquitectura">1 · Arquitectura general</h2>
 <p>
-  Todo corre en tu máquina. No hay servidor remoto, ni cuenta, ni nada que
-  mantener: un proceso de Python que sirve una página y un fichero SQLite
-  con el histórico de precios.
+  Dos contenedores y una base de datos. La aplicación es Next.js y sirve
+  las páginas; el <b>fetcher</b> sigue siendo el paquete de Python original,
+  porque el proveedor de Google Flights habla el protobuf de Google y no
+  tiene equivalente en TypeScript. Los dos comparten un Postgres con el
+  histórico de precios. No hay cuenta ni login: es una herramienta de una
+  sola persona.
 </p>
 
 <figure class="figure">
@@ -212,7 +215,18 @@ export const INFO_HTML = `
   </p>
 </div>
 
-<h3>El coche también es parte del precio</h3>
+<h3>El coche también es parte del precio <em>(desactivado)</em></h3>
+<div class="note warn">
+  <p>
+    <b>Ahora mismo esto no se aplica.</b> Las tarifas de
+    <code>travel</code> en <code>config.yaml</code> están a cero, así que
+    ningún viaje paga coche ni parking y la columna <b>Coche</b> no
+    aparece en las tablas. El resto de esta sección describe el modelo por
+    si lo vuelves a encender: basta con devolver las cuatro cifras
+    (<code>eur_per_km: 0.22</code>, <code>eur_per_hour: 12</code> y el
+    <code>parking_per_day</code> de cada aeropuerto), y vuelve entero.
+  </p>
+</div>
 <p>
   Un vuelo desde Hahn a 25 € no cuesta 25 €: cuesta además 155 km de ida,
   otros tantos de vuelta, tres horas y media al volante y el parking de

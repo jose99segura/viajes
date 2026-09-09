@@ -404,10 +404,17 @@ export default async function TripsPage({
           {cfg.scoring.fridayEveningBonus} €, horario laboral +
           {cfg.scoring.workHoursPenalty} €, entre semana +
           {cfg.scoring.weekdayPenalty} €, madrugón +{cfg.scoring.earlyPenalty} €,
-          llegar a casa de noche +{cfg.scoring.lateArrivalPenalty} €) + el coche
-          hasta el aeropuerto (gasolina, peajes, tus horas al volante y el
-          parking) + {cfg.scoring.dayOffCost} € por cada día de vacaciones que
-          gasta. Haz clic en una fila para ver la evolución del precio.{" "}
+          llegar a casa de noche +{cfg.scoring.lateArrivalPenalty} €)
+          {/* Only described when it is actually applied — see config.yaml. */}
+          {hasGround && (
+            <>
+              {" "}
+              + el coche hasta el aeropuerto (gasolina, peajes, tus horas al
+              volante y el parking)
+            </>
+          )}{" "}
+          + {cfg.scoring.dayOffCost} € por cada día de vacaciones que gasta. Haz
+          clic en una fila para ver la evolución del precio.{" "}
           <a href="/info">Cómo funciona →</a>
         </p>
       </div>
