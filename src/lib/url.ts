@@ -14,6 +14,16 @@ export function one(params: Params, key: string): string | undefined {
 }
 
 /**
+ * Last value of a param. Used for a checkbox that defaults to on: the form
+ * sends a hidden "0" followed by the checkbox's "1", and the later value
+ * is the one the user actually set.
+ */
+export function last(params: Params, key: string): string | undefined {
+  const v = params[key];
+  return Array.isArray(v) ? v[v.length - 1] : v;
+}
+
+/**
  * Same params with `patch` applied; a null/undefined/"" value removes the
  * key. Returns "?a=1&b=2" — or a bare "?" when nothing is left, which the
  * browser resolves to the current path with an empty query. Never "": an

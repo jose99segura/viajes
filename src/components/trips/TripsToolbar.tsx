@@ -23,6 +23,7 @@ export interface ToolbarValues {
   direct: boolean;
   sort?: string;
   dir?: string;
+  group: boolean;
 }
 
 export function TripsToolbar({
@@ -146,6 +147,21 @@ export function TripsToolbar({
           onChange={submit}
         />{" "}
         solo directos
+      </label>
+      {/* Grouping is ON by default, so the checkbox has to be able to send
+          "off". A checkbox submits nothing when unchecked, hence the hidden
+          "0" in front of it: unchecked sends group=0, checked sends
+          group=0&group=1 and the page reads the LAST value. */}
+      <input type="hidden" name="group" value="0" />
+      <label className="toggle" id="lGroup">
+        <input
+          name="group"
+          type="checkbox"
+          value="1"
+          defaultChecked={values.group}
+          onChange={submit}
+        />{" "}
+        agrupar parecidos
       </label>
 
       <div className="grow" />

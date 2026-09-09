@@ -9,6 +9,7 @@ import {
   WhenCell,
 } from "@/components/trips/cells";
 import { KindField } from "@/components/trips/KindField";
+import { GroupToggle } from "@/components/trips/GroupToggle";
 import { DetailCard } from "@/components/trips/DetailCard";
 import { Pager, PAGE_SIZE } from "@/components/trips/Pager";
 import { RowLink } from "@/components/trips/RowLink";
@@ -33,7 +34,8 @@ import {
   type TripFilter,
   type When,
 } from "@/lib/trips";
-import { hrefWith, one, type Params } from "@/lib/url";
+import { groupTrips } from "@/lib/grouping";
+import { hrefWith, last, one, type Params } from "@/lib/url";
 
 /**
  * "Ida y vuelta" — paired round trips ranked by effective cost.
@@ -178,9 +180,19 @@ export default async function TripsPage({
     });
   }
 
-  const pages = Math.max(1, Math.ceil(trips.length / PAGE_SIZE));
+  // Grouping is on by default, as the old checkbox was; `group=0` turns
+  // it off. It is a view of the rows already computed, never a refetch.
+  const grouping = last(params, "group") !== "0";
+  const openGroups = new Set(
+    Array.isArray(params.open) ? params.open : params.open ? [params.open] : [],
+  );
+  const rowsToShow = grouping
+    ? groupTrips(trips, openGroups)
+    : trips.map((trip) => ({ trip, key: "", more: 0, child: false }));
+
+  const pages = Math.max(1, Math.ceil(rowsToShow.length / PAGE_SIZE));
   const page = Math.min(Math.max(1, Number(one(params, "page")) || 1), pages);
-  const pageRows = trips.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageRows = rowsToShow.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const sel = one(params, "sel");
   const selected = sel ? trips.find((t) => tripKey(t) === sel) : undefined;
@@ -230,11 +242,7 @@ export default async function TripsPage({
 
         <TripsToolbar
           airports={airports}
-          count={
-            depart
-              ? `${fmtInt(trips.length)} viajes saliendo el ${depart}`
-              : `${fmtInt(trips.length)} viajes`
-          }
+          count={countLabel(rowsToShow.length, trips.length, depart)}
           depart={depart}
           clearDepartHref={depart ? hrefWith(params, { depart: null, page: null, sel: null }) : undefined}
           kindField={<KindField kind="trips" />}
@@ -247,6 +255,7 @@ export default async function TripsPage({
             maxPrice: filter.maxPrice === null ? "" : String(filter.maxPrice),
             sameAirport: filter.sameOnly,
             direct: filter.directOnly,
+            group: grouping,
             sort: sortKey === "effective" ? undefined : sortKey,
             dir: dir === -1 ? "-1" : undefined,
           }}
@@ -308,7 +317,7 @@ export default async function TripsPage({
                     </td>
                   </tr>
                 )}
-                {pageRows.map((t) => {
+                {pageRows.map(({ trip: t, key: gKey, more, child }) => {
                   const key = tripKey(t);
                   const fav = tripFav(t);
                   return (
@@ -316,12 +325,20 @@ export default async function TripsPage({
                       key={key}
                       href={hrefWith(params, { sel: key })}
                       selected={selected === t}
+                      className={child ? "child" : undefined}
                     >
                       <td className="starcol">
                         <StarButton fav={fav} on={favKeys.has(favoriteKey(fav))} />
                       </td>
                       <td>
                         <LegCell origin={t.out.origin} destination="ALC" airline={t.out.airline} stops={t.out.stops} />
+                        {more > 0 && (
+                          <GroupToggle
+                            href={toggleGroupHref(params, openGroups, gKey)}
+                            open={openGroups.has(gKey)}
+                            more={more}
+                          />
+                        )}
                       </td>
                       <td>
                         <WhenCell departure={t.out.departure} dateOnly={t.out.dateOnly} />
@@ -392,4 +409,30 @@ function costBreakdown(t: Trip): string {
     bits.push(`+${t.ground.toFixed(0)} € coche${t.groundLabel ? ` (${t.groundLabel})` : ""}`);
   if (t.holiday) bits.push(`+${t.holiday.toFixed(0)} € ${t.holidayLabel}`);
   return `${bits.join(" ")} = ${fmtEUR(t.effective)} efectivo`;
+}
+
+/**
+ * How many rows are shown, and out of how many when grouping hides some —
+ * otherwise a folded list looks like the filters lost results.
+ */
+function countLabel(shown: number, total: number, depart?: string): string {
+  const noun = depart ? `viajes saliendo el ${depart}` : "viajes";
+  return shown < total
+    ? `${fmtInt(shown)} de ${fmtInt(total)} ${noun}`
+    : `${fmtInt(total)} ${noun}`;
+}
+
+/** The URL with one group folded or unfolded, keeping every other one. */
+function toggleGroupHref(params: Params, open: Set<string>, key: string): string {
+  const next = new Set(open);
+  if (!next.delete(key)) next.add(key);
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (k === "open") continue;
+    const s = Array.isArray(v) ? v[0] : v;
+    if (s !== undefined && s !== "") q.set(k, s);
+  }
+  for (const k of next) q.append("open", k);
+  const s = q.toString();
+  return s ? `/?${s}` : "/";
 }

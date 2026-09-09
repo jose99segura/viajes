@@ -11,16 +11,18 @@ import { useRouter } from "next/navigation";
 export function RowLink({
   href,
   selected,
+  className,
   children,
 }: {
   href: string;
   selected: boolean;
+  className?: string;
   children: React.ReactNode;
 }) {
   const router = useRouter();
   return (
     <tr
-      className={selected ? "selected" : undefined}
+      className={[className, selected ? "selected" : ""].filter(Boolean).join(" ") || undefined}
       onClick={() => router.push(href, { scroll: false })}
     >
       {children}
