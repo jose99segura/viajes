@@ -6,12 +6,13 @@ import { latestSnapshot } from "@/db/queries";
 import {
   addMonths,
   CAL_RAMP,
-  dailyMinima,
+  dailyBest,
   monthParam,
   parseMonth,
   todayMonth,
 } from "@/lib/calendar";
-import { fmtCaptured } from "@/lib/format";
+import { loadConfig } from "@/lib/config";
+import { fmtCaptured, fmtEUR } from "@/lib/format";
 import { hrefWith, one, type Params } from "@/lib/url";
 
 /**
@@ -28,17 +29,27 @@ export default async function CalendarPage({
   searchParams: Promise<Params>;
 }) {
   const params = await searchParams;
+  const cfg = loadConfig();
   const rows = await latestSnapshot();
 
   const airport = (one(params, "airport") ?? "").toUpperCase();
   const dir = one(params, "dir") === "inbound" ? "inbound" : "outbound";
   const [year, month] = parseMonth(one(params, "month")) ?? todayMonth();
 
-  const { outbound, inbound, airports } = dailyMinima(rows, airport);
-  const days = dir === "outbound" ? outbound : inbound;
-  const prices = Object.values(days);
-  const lo = prices.length ? Math.min(...prices) : 0;
-  const hi = prices.length ? Math.max(...prices) : 1;
+  const { outbound, inbound, airports } = dailyBest(rows, airport, cfg);
+  const best = dir === "outbound" ? outbound : inbound;
+  // Coloured by effective cost, like every other view.
+  const days: Record<string, number> = {};
+  const titles: Record<string, string> = {};
+  for (const [iso, d] of Object.entries(best)) {
+    days[iso] = d.effective;
+    titles[iso] =
+      `${iso} · ${d.airport}${d.airline ? ` ${d.airline}` : ""} · ` +
+      `${fmtEUR(d.price)} billete → ${fmtEUR(d.effective)} efectivo`;
+  }
+  const values = Object.values(days);
+  const lo = values.length ? Math.min(...values) : 0;
+  const hi = values.length ? Math.max(...values) : 1;
 
   let lastCaptured: string | null = null;
   for (const r of rows) {
@@ -70,8 +81,8 @@ export default async function CalendarPage({
         <div className="cal-head">
           <h2>
             {dir === "outbound"
-              ? "Precio más bajo por día — ida hacia Alicante"
-              : "Precio más bajo por día — vuelta desde Alicante"}
+              ? "Coste efectivo más bajo por día — ida hacia Alicante"
+              : "Coste efectivo más bajo por día — vuelta desde Alicante"}
           </h2>
           <div className="nav">
             <Link href={hrefWith(params, { month: monthParam(py, pm) })} role="button">
@@ -94,8 +105,24 @@ export default async function CalendarPage({
         </div>
 
         <div className="cal-months">
-          <MonthGrid year={year} month={month} prices={days} lo={lo} hi={hi} hrefFor={hrefFor} />
-          <MonthGrid year={y2} month={m2} prices={days} lo={lo} hi={hi} hrefFor={hrefFor} />
+          <MonthGrid
+            year={year}
+            month={month}
+            prices={days}
+            lo={lo}
+            hi={hi}
+            hrefFor={hrefFor}
+            titles={titles}
+          />
+          <MonthGrid
+            year={y2}
+            month={m2}
+            prices={days}
+            lo={lo}
+            hi={hi}
+            hrefFor={hrefFor}
+            titles={titles}
+          />
         </div>
       </div>
     </>

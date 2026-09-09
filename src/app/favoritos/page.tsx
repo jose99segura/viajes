@@ -9,14 +9,27 @@ import {
   type FavoriteRow,
 } from "@/db/queries";
 import { bookingLinkForLeg, type BookingLink } from "@/lib/booking";
+import { loadConfig } from "@/lib/config";
 import { fmtDep, fmtEUR } from "@/lib/format";
 import type { FavoriteInput } from "@/lib/favorites";
-import { dayNumber, parseWallClock } from "@/lib/wallclock";
+import {
+  airportGround,
+  convenienceAdjustment,
+  dayAdjustment,
+  daysOffCost,
+  tripGround,
+  workDaysUsed,
+} from "@/lib/scoring";
+import { dayNumber, parseWallClock, startOfDay } from "@/lib/wallclock";
 
 /**
- * "Favoritos" — saved trips and flights, each showing today's price, the
- * range seen so far, and the movement since saving. Port of the
- * /api/favorites handler in web.py plus renderFavs() in app.js.
+ * "Favoritos" — saved trips and flights, each showing what the trip costs
+ * door to door today, the range seen so far, and the movement since
+ * saving. Port of the /api/favorites handler in web.py plus renderFavs().
+ *
+ * The card leads with the effective cost, not the ticket: that is what the
+ * rest of the app ranks by, and a saved trip is worth what it really
+ * costs. The breakdown line under it says where the number came from.
  */
 
 export const metadata = { title: "Favoritos" };
@@ -38,6 +51,12 @@ interface FavView {
   legs: LegView[];
   isPackage: boolean;
   priceNow: number | null;
+  /** Ticket + adjustment + car + holiday, at today's price. */
+  effectiveNow: number | null;
+  adjustment: number;
+  ground: number;
+  holiday: number;
+  holidayLabel: string;
   delta: number | null;
   nights: number | null;
   links: BookingLink[];
@@ -54,11 +73,30 @@ async function enrich(row: FavoriteRow): Promise<FavView> {
       packageExtremes(row.outOrigin, row.outDestination, outDay, nights),
     ]);
     const priceNow = now?.price ?? null;
+    const cfg = loadConfig();
+    // Scored on day of week only: Luxair publishes no departure time.
+    const outClock = startOfDay(parseWallClock(row.outDeparture));
+    const retClock = startOfDay(parseWallClock(row.retDeparture));
+    const [outAdj] = dayAdjustment(outClock, cfg.scoring);
+    const [retAdj] = dayAdjustment(retClock, cfg.scoring);
+    const home = row.outOrigin === "ALC" ? row.outDestination : row.outOrigin;
+    const [ground] = airportGround(home, cfg.travel, nights);
+    const daysOff = workDaysUsed(outClock, retClock, cfg.scoring, true, true);
+    const [holiday, holidayLabel] = daysOffCost(daysOff, outClock, cfg.scoring, true);
+    const adjustment = Math.round((outAdj + retAdj) * 100) / 100;
     return {
       row,
       isPackage: true,
       nights,
       priceNow,
+      adjustment,
+      ground,
+      holiday,
+      holidayLabel,
+      effectiveNow:
+        priceNow === null
+          ? null
+          : Math.round((priceNow + adjustment + ground + holiday) * 100) / 100,
       delta:
         row.priceAtSave && priceNow ? Math.round((priceNow - row.priceAtSave) * 100) / 100 : null,
       legs: [
@@ -96,7 +134,9 @@ async function enrich(row: FavoriteRow): Promise<FavView> {
     legSpecs.push([row.retOrigin, row.retDestination, row.retDeparture]);
   }
 
+  const cfg = loadConfig();
   let totalNow = 0;
+  let adjustment = 0;
   const legs: LegView[] = [];
   for (const [origin, destination, departure] of legSpecs) {
     const [now, ext] = await Promise.all([
@@ -105,6 +145,11 @@ async function enrich(row: FavoriteRow): Promise<FavView> {
     ]);
     const price = now?.price ?? null;
     if (price !== null) totalNow += price;
+    try {
+      adjustment += convenienceAdjustment(parseWallClock(departure), cfg.scoring)[0];
+    } catch {
+      /* an unparsable departure scores nothing, as web.py did */
+    }
     legs.push({
       origin,
       destination,
@@ -119,6 +164,25 @@ async function enrich(row: FavoriteRow): Promise<FavView> {
   }
   const priceNow = totalNow ? Math.round(totalNow * 100) / 100 : null;
   const isTrip = legs.length === 2;
+  adjustment = Math.round(adjustment * 100) / 100;
+
+  // A one-way favourite: the drive counts, but nothing says how long the
+  // car would wait, so parking and holiday stay out.
+  let ground: number;
+  let holiday = 0;
+  let holidayLabel = "";
+  let nights: number | null = null;
+  if (isTrip) {
+    const outDep = parseWallClock(legs[0].departure);
+    const retDep = parseWallClock(legs[1].departure);
+    nights = dayNumber(retDep) - dayNumber(outDep);
+    [ground] = tripGround(row.outOrigin, row.retDestination ?? "", nights, cfg.travel);
+    const daysOff = workDaysUsed(outDep, retDep, cfg.scoring);
+    [holiday, holidayLabel] = daysOffCost(daysOff, outDep, cfg.scoring);
+  } else {
+    const home = row.outDestination === "ALC" ? row.outOrigin : row.outDestination;
+    [ground] = airportGround(home, cfg.travel);
+  }
 
   let links: BookingLink[];
   if (!isTrip) {
@@ -135,10 +199,16 @@ async function enrich(row: FavoriteRow): Promise<FavView> {
   return {
     row,
     isPackage: false,
-    nights: isTrip
-      ? dayNumber(parseWallClock(legs[1].departure)) - dayNumber(parseWallClock(legs[0].departure))
-      : null,
+    nights,
     priceNow,
+    adjustment,
+    ground,
+    holiday,
+    holidayLabel,
+    effectiveNow:
+      priceNow === null
+        ? null
+        : Math.round((priceNow + adjustment + ground + holiday) * 100) / 100,
     delta: row.priceAtSave && priceNow ? Math.round((priceNow - row.priceAtSave) * 100) / 100 : null,
     legs,
     links,
@@ -207,15 +277,26 @@ export default async function FavoritesPage() {
                 </div>
               ))}
               <div className="total">
-                <span style={{ color: "var(--ink-2)", fontSize: 12.5 }}>total ahora</span>
+                <span style={{ color: "var(--ink-2)", fontSize: 12.5 }}>coste efectivo</span>
                 <span>
-                  <span className="v">{f.priceNow != null ? fmtEUR(f.priceNow) : "—"}</span>{" "}
+                  <span className="v">
+                    {f.effectiveNow != null ? fmtEUR(f.effectiveNow) : "—"}
+                  </span>{" "}
                   {f.delta != null && Math.abs(f.delta) >= 0.5 && (
                     <span className={`delta ${f.delta < 0 ? "down" : "up"}`}>
                       {f.delta < 0 ? "▼" : "▲"} {fmtEUR(Math.abs(f.delta))}
                     </span>
                   )}
                 </span>
+              </div>
+              <div
+                style={{
+                  color: "var(--muted)",
+                  fontSize: 11.5,
+                  marginTop: -4,
+                }}
+              >
+                {breakdown(f)}
               </div>
               <div className="book-links">
                 {f.links.map((l) => (
@@ -237,4 +318,16 @@ export default async function FavoritesPage() {
       </div>
     </>
   );
+}
+
+/** Where the effective cost came from, under the headline number. */
+function breakdown(f: FavView): string {
+  if (f.priceNow == null) return "sin precio en la última captura";
+  const bits = [`${fmtEUR(f.priceNow)} billete`];
+  if (f.adjustment) {
+    bits.push(`${f.adjustment > 0 ? "+" : "−"}${Math.abs(f.adjustment).toFixed(0)} € ajuste`);
+  }
+  if (f.ground) bits.push(`+${f.ground.toFixed(0)} € coche`);
+  if (f.holiday) bits.push(`+${f.holiday.toFixed(0)} € ${f.holidayLabel}`);
+  return bits.join(" ");
 }

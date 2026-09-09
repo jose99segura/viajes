@@ -1,4 +1,6 @@
-import type { FareRow } from "./trips";
+import type { Config } from "./config";
+import { airportGround } from "./scoring";
+import { scoreLeg, type FareRow } from "./trips";
 
 /**
  * The price calendars: colour ramp and the per-day minima. Port of the
@@ -26,34 +28,66 @@ export function rampColor(price: number, lo: number, hi: number): string {
 /** Text must flip to white on the dark half of the ramp. */
 export const isDarkRamp = (color: string) => CAL_RAMP.indexOf(color) >= 3;
 
+/** The best fare of one day, and what made it the best. */
+export interface DayBest {
+  day: string;
+  price: number;
+  effective: number;
+  airport: string;
+  airline: string | null;
+}
+
 /**
- * Cheapest current fare per calendar day, split by direction, optionally
- * for one home airport. The snapshot is already "latest price per flight",
- * so this is a min over it — the daily_minima query in db.py, done in
- * memory on rows the page has loaded anyway.
+ * Best fare per calendar day per direction, ranked the way the rest of the
+ * app ranks: by effective cost, not by ticket price. Otherwise a 22 € fare
+ * from an airport two hours away paints a greener day than a 107 € one from
+ * the airport down the road, and the calendar contradicts the trip list.
+ *
+ * Parking is left out — one day cell says nothing about how long the car
+ * would wait — so a day's effective cost is the ticket, the convenience
+ * adjustment and the drive there and back.
  */
-export function dailyMinima(
+export function dailyBest(
   rows: FareRow[],
   airport: string,
-): { outbound: Record<string, number>; inbound: Record<string, number>; airports: string[] } {
-  const outbound: Record<string, number> = {};
-  const inbound: Record<string, number> = {};
+  cfg: Config,
+): {
+  outbound: Record<string, DayBest>;
+  inbound: Record<string, DayBest>;
+  airports: string[];
+} {
+  const outbound: Record<string, DayBest> = {};
+  const inbound: Record<string, DayBest> = {};
   const airports = new Set<string>();
   for (const r of rows) {
-    let target: Record<string, number>;
+    let home: string;
+    let target: Record<string, DayBest>;
     if (r.destination === "ALC") {
-      airports.add(r.origin);
-      if (airport && r.origin !== airport) continue;
+      home = r.origin;
       target = outbound;
     } else if (r.origin === "ALC") {
-      airports.add(r.destination);
-      if (airport && r.destination !== airport) continue;
+      home = r.destination;
       target = inbound;
     } else {
       continue;
     }
-    const day = r.departure.slice(0, 10);
-    if (!(day in target) || r.price < target[day]) target[day] = r.price;
+    airports.add(home);
+    if (airport && home !== airport) continue;
+    const leg = scoreLeg(r, cfg);
+    if (!leg) continue;
+    const [ground] = airportGround(home, cfg.travel);
+    const effective = Math.round((r.price + leg.adjustment + ground) * 100) / 100;
+    const day = leg.departure.slice(0, 10);
+    const current = target[day];
+    if (!current || effective < current.effective) {
+      target[day] = {
+        day,
+        price: Math.round(r.price * 100) / 100,
+        effective,
+        airport: home,
+        airline: r.airline,
+      };
+    }
   }
   return { outbound, inbound, airports: [...airports].sort() };
 }

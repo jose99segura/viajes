@@ -275,18 +275,39 @@ function AlertRowView({ m }: { m: AlertMatch }) {
           {m.daysOff} día{m.daysOff === 1 ? "" : "s"} libre{m.daysOff === 1 ? "" : "s"}
         </span>
       )}
-      <span className="price">{fmtEUR(m.price)}</span>
+      {/* Effective leads, since that is what the list is ranked by;
+          the ticket underneath keeps it honest. */}
+      <span className="price" title={costBreakdown(m)}>
+        {fmtEUR(m.effective)}
+        <span
+          style={{
+            display: "block",
+            color: "var(--muted)",
+            fontSize: 11,
+            fontWeight: 500,
+          }}
+        >
+          {fmtEUR(m.price)} billete
+        </span>
+      </span>
     </AlertRowLink>
   );
 }
 
 /** The rule's matches as mini month grids; new-match days are outlined. */
 function AlertCalendar({ alert, matches }: { alert: AlertRow; matches: AlertMatch[] }) {
+  // Effective cost, as the trip list and the main calendar rank.
   const byDay: Record<string, number> = {};
+  const titles: Record<string, string> = {};
   const newDays = new Set<string>();
   for (const m of matches) {
     const day = m.out.departure.slice(0, 10);
-    if (!(day in byDay) || m.price < byDay[day]) byDay[day] = m.price;
+    if (!(day in byDay) || m.effective < byDay[day]) {
+      byDay[day] = m.effective;
+      titles[day] =
+        `${day} · ${m.out.origin} → ALC → ${m.ret.destination} · ` +
+        `${fmtEUR(m.price)} billete → ${fmtEUR(m.effective)} efectivo`;
+    }
     if (m.isNew) newDays.add(day);
   }
   const days = Object.keys(byDay).sort();
@@ -318,8 +339,20 @@ function AlertCalendar({ alert, matches }: { alert: AlertRow; matches: AlertMatc
           hi={hi}
           hrefFor={(iso) => dayHref(alert, iso)}
           outlined={newDays}
+          titles={titles}
         />
       ))}
     </div>
   );
+}
+
+/** Ticket, convenience, car and holiday, for the row's tooltip. */
+function costBreakdown(m: AlertMatch): string {
+  const bits = [`${fmtEUR(m.price)} billete`];
+  if (m.adjustment) {
+    bits.push(`${m.adjustment > 0 ? "+" : "−"}${Math.abs(m.adjustment).toFixed(0)} € ajuste`);
+  }
+  if (m.ground) bits.push(`+${m.ground.toFixed(0)} € coche`);
+  if (m.holiday) bits.push(`+${m.holiday.toFixed(0)} € ${m.holidayLabel}`);
+  return `${bits.join(" ")} = ${fmtEUR(m.effective)} efectivo`;
 }

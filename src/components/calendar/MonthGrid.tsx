@@ -19,6 +19,7 @@ export function MonthGrid({
   hrefFor,
   selected,
   outlined,
+  titles,
 }: {
   year: number;
   month: number;
@@ -31,6 +32,8 @@ export function MonthGrid({
   selected?: string;
   /** Days to outline (an alert's new matches). */
   outlined?: Set<string>;
+  /** ISO day -> title text; falls back to the day and its price. */
+  titles?: Record<string, string>;
 }) {
   const first = weekday({ year, month, day: 1, minutes: 0, seconds: 0 }); // Mon = 0
   const total =
@@ -65,7 +68,7 @@ export function MonthGrid({
           color: isDarkRamp(bg) ? "#fff" : "#0b0b0b",
           outline: outlined?.has(iso) ? "2px solid var(--accent)" : undefined,
         }}
-        title={`${iso} · ${fmtEUR(price)}`}
+        title={titles?.[iso] ?? `${iso} · ${fmtEUR(price)}`}
       >
         <span className="n">{d}</span>
         <span className="p">{Math.round(price)}€</span>
