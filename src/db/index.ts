@@ -4,7 +4,24 @@ import * as schema from "./schema";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  throw new Error("DATABASE_URL is not set. Copy .env.example to .env.local.");
+  throw new Error(
+    "DATABASE_URL is not set. Locally: copy .env.example to .env.local. " +
+      "On the VPS: set it in Coolify's environment variables.",
+  );
+}
+/**
+ * Check the shape here rather than letting the driver do it. A malformed
+ * value reaches `new URL()` deep inside drizzle and surfaces as a bare
+ * `TypeError: Invalid URL` with a stack in a minified chunk — which is what
+ * a whole deployment was once spent diagnosing, after Coolify substituted
+ * the text of a `${VAR:?message}` as the value itself.
+ */
+if (!/^postgres(ql)?:\/\//.test(connectionString)) {
+  throw new Error(
+    `DATABASE_URL is not a Postgres connection string: ${JSON.stringify(
+      connectionString.slice(0, 60),
+    )}. Expected postgresql://user:password@host:5432/database`,
+  );
 }
 
 /**

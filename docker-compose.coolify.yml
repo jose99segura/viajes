@@ -44,13 +44,17 @@ services:
     # pairing is the memory-hungry part and it is bounded by the fare count.
     mem_limit: 512m
     environment:
-      # `?err` makes the container fail loudly at start rather than booting
-      # into a broken state.
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in Coolify}
+      # Plain ${VAR}, NOT ${VAR:?message}. Coolify does not implement the
+      # `:?` form as a failure: it substitutes the MESSAGE as the value, so
+      # the app booted with DATABASE_URL="set DATABASE_URL in Coolify" and
+      # every request died on `TypeError: Invalid URL` while Traefik served
+      # "no available server". Unset is now empty, and src/db/index.ts says
+      # what is wrong in one line.
+      DATABASE_URL: ${DATABASE_URL}
 
       # The chat panel is optional and the app must work without a key,
-      # exactly as it does today — so these are `:-` defaults, not `:?`.
-      # A `?err` here would turn an optional feature into a boot failure.
+      # exactly as it does today. `:-` is a real default and Coolify does
+      # handle that one.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.7-flash}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -88,4 +92,4 @@ services:
     # responses for one date at a time, so the peak is modest.
     mem_limit: 512m
     environment:
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in Coolify}
+      DATABASE_URL: ${DATABASE_URL}
