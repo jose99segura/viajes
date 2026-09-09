@@ -19,6 +19,8 @@ export interface ToolbarValues {
   when: string;
   maxDaysOff: string;
   maxPrice: string;
+  from: string;
+  to: string;
   sameAirport: boolean;
   direct: boolean;
   sort?: string;
@@ -53,6 +55,30 @@ export function TripsToolbar({
       {depart && <input type="hidden" name="depart" value={depart} />}
 
       {kindField}
+
+      {/* Departure-date range. The stored departure is a wall-clock string
+          starting "YYYY-MM-DD", so the page compares its first ten
+          characters — no Date is built anywhere near it. */}
+      <label className="field">
+        <span>Fechas</span>
+        <span className="nights">
+          <input
+            type="date"
+            name="from"
+            defaultValue={values.from}
+            onChange={submit}
+            aria-label="Desde"
+          />
+          <span>–</span>
+          <input
+            type="date"
+            name="to"
+            defaultValue={values.to}
+            onChange={submit}
+            aria-label="Hasta"
+          />
+        </span>
+      </label>
 
       <label className="field">
         <span>Aeropuerto</span>

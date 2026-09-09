@@ -19,6 +19,8 @@ export function FlightsToolbar({
     airport: string;
     when: string;
     maxPrice: string;
+    from: string;
+    to: string;
     source: string;
     direct: boolean;
     sort?: string;
@@ -44,6 +46,30 @@ export function FlightsToolbar({
           <option value="inbound">Vuelta desde ALC</option>
           <option value="">Ambas</option>
         </select>
+      </label>
+
+      {/* Departure-date range. The stored departure is a wall-clock string
+          starting "YYYY-MM-DD", so the page compares its first ten
+          characters — no Date is built anywhere near it. */}
+      <label className="field">
+        <span>Fechas</span>
+        <span className="nights">
+          <input
+            type="date"
+            name="from"
+            defaultValue={values.from}
+            onChange={submit}
+            aria-label="Desde"
+          />
+          <span>–</span>
+          <input
+            type="date"
+            name="to"
+            defaultValue={values.to}
+            onChange={submit}
+            aria-label="Hasta"
+          />
+        </span>
       </label>
 
       <label className="field">

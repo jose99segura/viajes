@@ -138,8 +138,14 @@ export async function OneWayView({
   const maxPrice = one(params, "max_price");
   const max = maxPrice ? Number(maxPrice) : NaN;
   const direct = one(params, "direct") === "1";
+  const from = one(params, "from") ?? "";
+  const to = one(params, "to") ?? "";
 
   const shown = flights.filter((f) => {
+    // Inclusive date range, compared as text — see the trips page.
+    const day = f.departure.slice(0, 10);
+    if (from && day < from) return false;
+    if (to && day > to) return false;
     if (leg === "outbound" && f.destination !== "ALC") return false;
     if (leg === "inbound" && f.origin !== "ALC") return false;
     if (airport && f.origin !== airport && f.destination !== airport) return false;
@@ -222,6 +228,8 @@ export async function OneWayView({
             airport,
             when,
             maxPrice: maxPrice ?? "",
+            from,
+            to,
             source,
             direct,
             sort: sortKey === "effective" ? undefined : sortKey,

@@ -161,9 +161,21 @@ export default async function TripsPage({
   // to trips leaving that day. Applied before the cap, unlike the old client
   // filter over the capped list, so a busy day is not cut short.
   const depart = one(params, "depart");
-  const all = depart
-    ? built.trips.filter((t) => t.out.departure.startsWith(depart))
-    : built.trips;
+  // Departure-date range from the toolbar. `depart` is the calendar's exact
+  // day and applies on top; the two coexist because they are set from
+  // different places and either can be cleared without the other.
+  const from = one(params, "from") ?? "";
+  const to = one(params, "to") ?? "";
+  const all = built.trips.filter((t) => {
+    if (depart && !t.out.departure.startsWith(depart)) return false;
+    // Both bounds inclusive, compared as text: "YYYY-MM-DD" sorts
+    // lexicographically the same way it sorts chronologically, so no Date
+    // is built anywhere near a departure.
+    const day = t.out.departure.slice(0, 10);
+    if (from && day < from) return false;
+    if (to && day > to) return false;
+    return true;
+  });
   const total = all.length;
   const capped = total > TRIP_CAP;
   const trips = all.slice(0, TRIP_CAP);
@@ -268,6 +280,8 @@ export default async function TripsPage({
             when: filter.when,
             maxDaysOff: filter.maxDaysOff === null ? "" : String(filter.maxDaysOff),
             maxPrice: filter.maxPrice === null ? "" : String(filter.maxPrice),
+            from,
+            to,
             sameAirport: filter.sameOnly,
             direct: filter.directOnly,
             group: grouping,
