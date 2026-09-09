@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 /**
  * Shared behaviour for the filter bars.
@@ -31,9 +31,28 @@ export function useFilterForm(action: string) {
   const form = useRef<HTMLFormElement>(null);
   const router = useRouter();
 
+  // Where the list was when the filter changed. `scroll: false` on its own
+  // did not hold it — measured: 400 before, 0 after, with the page still
+  // 1839px tall — so the position is put back by hand once the new rows
+  // have rendered.
+  const restoreTo = useRef<number | null>(null);
+
+  useEffect(() => {
+    const y = restoreTo.current;
+    if (y === null) return;
+    restoreTo.current = null;
+    // Clamp: a narrower result set can be shorter than the old scroll
+    // position, and scrolling past the end just lands at the bottom.
+    window.scrollTo({
+      top: Math.min(y, document.documentElement.scrollHeight - window.innerHeight),
+      behavior: "instant" as ScrollBehavior,
+    });
+  });
+
   const submit = () => {
     const el = form.current;
     if (!el) return;
+    restoreTo.current = window.scrollY;
     const query = new URLSearchParams();
     for (const [key, value] of new FormData(el).entries()) {
       const text = String(value);
