@@ -31,6 +31,7 @@ export function TripsToolbar({
   count,
   depart,
   clearDepartHref,
+  kindField,
 }: {
   values: ToolbarValues;
   airports: string[];
@@ -38,6 +39,8 @@ export function TripsToolbar({
   /** A departure day the calendar narrowed the list to, if any. */
   depart?: string;
   clearDepartHref?: string;
+  /** The shared "Tipo" select that switches to the one-way view. */
+  kindField?: React.ReactNode;
 }) {
   const form = useRef<HTMLFormElement>(null);
   const submit = () => form.current?.requestSubmit();
@@ -47,6 +50,8 @@ export function TripsToolbar({
       {values.sort && <input type="hidden" name="sort" value={values.sort} />}
       {values.dir && <input type="hidden" name="dir" value={values.dir} />}
       {depart && <input type="hidden" name="depart" value={depart} />}
+
+      {kindField}
 
       <label className="field">
         <span>Aeropuerto</span>

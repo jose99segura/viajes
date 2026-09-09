@@ -14,7 +14,7 @@ import {
 
 /**
  * Ported from flighttracker/db.py. The Python fetcher writes these same
- * tables through psycopg, so any change here has to be matched there.
+ * tables through pg8000, so any change here has to be matched there.
  *
  * ---------------------------------------------------------------------------
  * Two timestamp kinds, deliberately different

@@ -30,7 +30,11 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  app:
+  # Named `web`, not `app`: Coolify indexes a resource's domain mapping BY
+  # SERVICE NAME, and this resource already carries {"web": {...}} from the
+  # Flask deployment. Renaming the service would orphan that mapping and the
+  # domain would silently stop being applied. Same for SERVICE_FQDN_WEB.
+  web:
     build:
       context: .
       dockerfile: Dockerfile
@@ -54,6 +58,11 @@ services:
       NODE_ENV: production
     expose:
       - "3000"
+    # Docker runs this and the container does report healthy, but Coolify
+    # does NOT parse a compose healthcheck — its UI says "Running (no
+    # healthcheck)" and its proxy does not wait for health before routing.
+    # To have it gate traffic during a restart, set the healthcheck in the
+    # Coolify UI as well.
     healthcheck:
       test:
         - CMD

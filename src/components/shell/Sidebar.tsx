@@ -27,10 +27,11 @@ function subscribeToHtmlClass(onChange: () => void) {
 const isCollapsed = () =>
   document.documentElement.classList.contains("nav-collapsed");
 
+// One-way is not a nav entry: it is the "Tipo" field on the search page, so
+// the same entry stays lit for both of its modes.
 const NAV = [
   { group: "Buscar" },
   { href: "/", icon: "⇄", label: "Ida y vuelta" },
-  { href: "/solo-ida", icon: "→", label: "Solo ida" },
   { href: "/calendario", icon: "▦", label: "Calendario" },
   { href: "/alertas", icon: "◔", label: "Alertas", badge: "unseen" },
   { group: "Guardado" },

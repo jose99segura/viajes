@@ -2,12 +2,18 @@
 
 import { useRef } from "react";
 
-/** The filter bar for "Solo ida". Same GET-form pattern as TripsToolbar. */
+/**
+ * The filter bar for the one-way view. Same GET-form pattern as
+ * TripsToolbar; `kindField` is the shared "Tipo" select that switches
+ * between the two, so the rest of the filters survive the switch.
+ */
 export function FlightsToolbar({
   values,
   airports,
   count,
+  kindField,
 }: {
+  kindField?: React.ReactNode;
   values: {
     airport: string;
     when: string;
@@ -24,9 +30,11 @@ export function FlightsToolbar({
   const submit = () => form.current?.requestSubmit();
 
   return (
-    <form ref={form} method="get" action="/solo-ida" className="toolbar">
+    <form ref={form} method="get" action="/" className="toolbar">
       {values.sort && <input type="hidden" name="sort" value={values.sort} />}
       {values.dir && <input type="hidden" name="dir" value={values.dir} />}
+
+      {kindField}
 
       <label className="field">
         <span>Aeropuerto</span>

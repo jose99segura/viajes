@@ -2,6 +2,7 @@ import { FlightsToolbar } from "@/components/flights/FlightsToolbar";
 import { Topbar } from "@/components/shell/Topbar";
 import {
   Badges,
+  GroundCell,
   LegCell,
   SortHeader,
   WhenCell,
@@ -23,23 +24,29 @@ import {
   fmtInt,
   stopsES,
 } from "@/lib/format";
-import { convenienceAdjustment } from "@/lib/scoring";
-import { matchesWhen, type FareRow, type When } from "@/lib/trips";
+import { airportGround } from "@/lib/scoring";
+import { matchesWhen, scoreLeg, type FareRow, type When } from "@/lib/trips";
 import { hrefWith, one, type Params } from "@/lib/url";
-import { canonical, parseWallClock } from "@/lib/wallclock";
 
 /**
  * "Solo ida" — every future fare in the latest snapshot, scored the same
- * way the legs of a round trip are. The old client filtered this list in
- * the browser; here the filters are query parameters like on "/".
+ * way the legs of a round trip are.
+ *
+ * Not a route of its own: it is the "Tipo" field on the search page, so
+ * switching between round trips and one ways keeps the airport, the price
+ * cap and the rest of the filter bar. It renders inside "/" when
+ * `kind=oneway`.
+ *
+ * One leg says nothing about how long the car would sit at the airport, so
+ * the drive counts in the effective cost and parking does not.
  */
-
-export const metadata = { title: "Solo ida" };
 
 interface Flight extends FareRow {
   route: string;
   adjustment: number;
   label: string;
+  ground: number;
+  groundLabel: string;
   effective: number;
   key: string;
 }
@@ -49,6 +56,7 @@ const SORTS: Record<string, (f: Flight) => number | string> = {
   departure: (f) => f.departure,
   price: (f) => f.price,
   adjustment: (f) => f.adjustment,
+  ground: (f) => f.ground,
   effective: (f) => f.effective,
   label: (f) => f.label,
   source: (f) => f.source,
@@ -59,6 +67,7 @@ const COLS: Array<{ k: string; t: string; num?: boolean }> = [
   { k: "departure", t: "Salida" },
   { k: "price", t: "Precio", num: true },
   { k: "adjustment", t: "Ajuste", num: true },
+  { k: "ground", t: "Coche", num: true },
   { k: "effective", t: "Efectivo", num: true },
   { k: "label", t: "Cuándo" },
   { k: "source", t: "Fuente" },
@@ -77,12 +86,16 @@ function flightFav(f: Flight): FavoriteInput {
   };
 }
 
-export default async function FlightsPage({
-  searchParams,
+export async function OneWayView({
+  params,
+  airports,
+  toolbar,
 }: {
-  searchParams: Promise<Params>;
+  params: Params;
+  airports: string[];
+  /** The shared "Tipo" field, rendered inside this view's filter bar. */
+  toolbar: React.ReactNode;
 }) {
-  const params = await searchParams;
   const cfg = loadConfig();
   const [rows, favKeys] = await Promise.all([latestSnapshot(), favoriteKeys()]);
 
@@ -90,30 +103,22 @@ export default async function FlightsPage({
   const flights: Flight[] = [];
   for (const r of rows) {
     if (lastCaptured === null || r.capturedAt > lastCaptured) lastCaptured = r.capturedAt;
-    let adjustment: number;
-    let label: string;
-    try {
-      [adjustment, label] = convenienceAdjustment(parseWallClock(r.departure), cfg.scoring);
-    } catch {
-      continue;
-    }
-    const departure = canonical(r.departure);
+    const leg = scoreLeg(r, cfg);
+    if (!leg) continue;
+    const home = r.destination === "ALC" ? r.origin : r.destination;
+    const [ground, groundLabel] = airportGround(home, cfg.travel);
     flights.push({
       ...r,
-      departure,
+      departure: leg.departure,
       route: `${r.origin}→${r.destination}`,
-      adjustment,
-      label,
-      effective: Math.round((r.price + adjustment) * 100) / 100,
-      key: `${r.origin}|${r.destination}|${departure}`,
+      adjustment: leg.adjustment,
+      label: leg.label,
+      ground,
+      groundLabel,
+      effective: Math.round((r.price + leg.adjustment + ground) * 100) / 100,
+      key: `${r.origin}|${r.destination}|${leg.departure}`,
     });
   }
-
-  const airports = [
-    ...new Set(flights.map((f) => (f.destination === "ALC" ? f.origin : f.destination))),
-  ]
-    .filter((a) => a !== "ALC")
-    .sort();
 
   // Tiles describe the whole snapshot, as the old renderTiles() did.
   const best = flights.length
@@ -163,7 +168,7 @@ export default async function FlightsPage({
 
   return (
     <>
-      <Topbar title="Solo ida" meta={fmtCaptured(lastCaptured)} />
+      <Topbar title="Ida y vuelta" meta={fmtCaptured(lastCaptured)} />
       <div className="content">
         <div className="tiles">
           <div className="tile">
@@ -175,7 +180,9 @@ export default async function FlightsPage({
             <div className="k">Más barato</div>
             <div className="v">{cheapest ? fmtEUR0(cheapest.price) : "–"}</div>
             <div className="d">
-              {cheapest ? `${cheapest.route} · ${fmtDep(cheapest.departure)}` : ""}
+              {cheapest
+                ? `${cheapest.route} · ${fmtDep(cheapest.departure)} · ${fmtEUR0(cheapest.effective)} efectivo`
+                : ""}
             </div>
           </div>
           <div className="tile">
@@ -190,6 +197,7 @@ export default async function FlightsPage({
         <FlightsToolbar
           airports={airports}
           count={`${fmtInt(shown.length)} vuelos`}
+          kindField={toolbar}
           values={{
             airport,
             when,
@@ -204,7 +212,7 @@ export default async function FlightsPage({
         {selected && (
           <DetailCard
             title={`${selected.origin} → ${selected.destination} · ${fmtDep(selected.departure)}`}
-            meta={`${selected.airline ?? "?"} · ${stopsES(selected.stops)} · ${fmtEUR(selected.price)} · evolución del precio`}
+            meta={costBreakdown(selected)}
             links={[
               bookingLinkForLeg(selected.source, selected.origin, selected.destination, selected.departure),
             ]}
@@ -267,6 +275,9 @@ export default async function FlightsPage({
                       </td>
                       <td className="num">{fmtEUR(f.price)}</td>
                       <td className="num adj">{fmtAdj(f.adjustment)}</td>
+                      <td className="num adj" title={f.groundLabel}>
+                        <GroundCell ground={f.ground} />
+                      </td>
                       <td className="num">
                         <span className="eff">{fmtEUR(f.effective)}</span>
                       </td>
@@ -287,4 +298,12 @@ export default async function FlightsPage({
       </div>
     </>
   );
+}
+
+/** Ticket, convenience and car spelled out, so the ranking never looks arbitrary. */
+function costBreakdown(f: Flight): string {
+  const bits = [`${f.airline ?? "?"} · ${stopsES(f.stops)}`, `${fmtEUR(f.price)} billete`];
+  if (f.adjustment) bits.push(`${fmtAdj(f.adjustment)} ajuste`);
+  if (f.ground) bits.push(`+${f.ground.toFixed(0)} € coche${f.groundLabel ? ` (${f.groundLabel})` : ""}`);
+  return `${bits.join(" · ")} = ${fmtEUR(f.effective)} efectivo`;
 }

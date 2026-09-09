@@ -1,11 +1,14 @@
+import { OneWayView } from "@/app/oneway-view";
 import { Topbar } from "@/components/shell/Topbar";
 import {
   Badges,
   DaysOff,
+  GroundCell,
   LegCell,
   SortHeader,
   WhenCell,
 } from "@/components/trips/cells";
+import { KindField } from "@/components/trips/KindField";
 import { DetailCard } from "@/components/trips/DetailCard";
 import { Pager, PAGE_SIZE } from "@/components/trips/Pager";
 import { RowLink } from "@/components/trips/RowLink";
@@ -56,6 +59,7 @@ const SORTS: Record<string, (t: Trip) => number | string> = {
   days_off: (t) => t.daysOff,
   price: (t) => t.price,
   adjustment: (t) => t.adjustment,
+  ground: (t) => t.ground,
   effective: (t) => t.effective,
   when: (t) => t.out.label,
 };
@@ -69,6 +73,7 @@ const COLS: Array<{ k: string; t: string; num?: boolean }> = [
   { k: "days_off", t: "Días libres", num: true },
   { k: "price", t: "Precio", num: true },
   { k: "adjustment", t: "Ajuste", num: true },
+  { k: "ground", t: "Coche", num: true },
   { k: "effective", t: "Efectivo", num: true },
   { k: "when", t: "Cuándo" },
 ];
@@ -112,6 +117,7 @@ export default async function TripsPage({
   searchParams: Promise<Params>;
 }) {
   const params = await searchParams;
+  const kind = one(params, "kind") === "oneway" ? "oneway" : "trips";
   const filter = filterFrom(params);
   const cfg = loadConfig();
 
@@ -126,6 +132,17 @@ export default async function TripsPage({
   ]
     .filter((a) => a !== "ALC")
     .sort();
+
+  // One-way is a mode of this page, not a route of its own.
+  if (kind === "oneway") {
+    return (
+      <OneWayView
+        params={params}
+        airports={airports}
+        toolbar={<KindField kind="oneway" />}
+      />
+    );
+  }
 
   const built = buildTrips(rows, packages, cfg, filter);
   const lastCaptured = built.lastCaptured;
@@ -220,6 +237,7 @@ export default async function TripsPage({
           }
           depart={depart}
           clearDepartHref={depart ? hrefWith(params, { depart: null, page: null, sel: null }) : undefined}
+          kindField={<KindField kind="trips" />}
           values={{
             airport: filter.airport,
             minNights: filter.minNights,
@@ -240,7 +258,7 @@ export default async function TripsPage({
             meta={
               `Ida ${fmtDep(selected.out.departure, selected.out.dateOnly)} (${selected.out.airline ?? "?"}) · ` +
               `vuelta ${fmtDep(selected.ret.departure, selected.ret.dateOnly)} (${selected.ret.airline ?? "?"}) · ` +
-              `total ${fmtEUR(selected.price)}`
+              costBreakdown(selected)
             }
             links={bookingLinksForTrip(selected)}
             series={[
@@ -315,7 +333,12 @@ export default async function TripsPage({
                         <WhenCell departure={t.ret.departure} dateOnly={t.ret.dateOnly} />
                       </td>
                       <td className="num">{t.nights}</td>
-                      <td className="num">
+                      {/* The euros those days cost ride in the tooltip: the
+                          table is wide enough, and the detail card spells it out. */}
+                      <td
+                        className="num"
+                        title={t.holiday ? `${t.holiday.toFixed(0)} € de vacaciones` : undefined}
+                      >
                         <DaysOff days={t.daysOff} />
                       </td>
                       <td className="num">
@@ -323,6 +346,9 @@ export default async function TripsPage({
                         {t.isPackage && <> <span className="badge">paq.</span></>}
                       </td>
                       <td className="num adj">{fmtAdj(t.adjustment)}</td>
+                      <td className="num adj" title={t.groundLabel}>
+                        <GroundCell ground={t.ground} />
+                      </td>
                       <td className="num">
                         <span className="eff">{fmtEUR(t.effective)}</span>
                       </td>
@@ -339,12 +365,15 @@ export default async function TripsPage({
         </div>
 
         <p className="footnote">
-          <b>Coste efectivo</b> = precio + ajuste por conveniencia de cada
+          <b>Coste efectivo</b> = billete + ajuste por conveniencia de cada
           trayecto (finde −{cfg.scoring.weekendBonus} €, viernes tarde −
           {cfg.scoring.fridayEveningBonus} €, horario laboral +
           {cfg.scoring.workHoursPenalty} €, entre semana +
-          {cfg.scoring.weekdayPenalty} €, madrugón +{cfg.scoring.earlyPenalty} €).
-          Haz clic en una fila para ver la evolución del precio.{" "}
+          {cfg.scoring.weekdayPenalty} €, madrugón +{cfg.scoring.earlyPenalty} €,
+          llegar a casa de noche +{cfg.scoring.lateArrivalPenalty} €) + el coche
+          hasta el aeropuerto (gasolina, peajes, tus horas al volante y el
+          parking) + {cfg.scoring.dayOffCost} € por cada día de vacaciones que
+          gasta. Haz clic en una fila para ver la evolución del precio.{" "}
           <a href="/info">Cómo funciona →</a>
         </p>
       </div>
@@ -352,3 +381,15 @@ export default async function TripsPage({
   );
 }
 
+/**
+ * Ticket, convenience, car and holiday spelled out, so the ranking never
+ * looks arbitrary next to a cheaper fare that ranks below it.
+ */
+function costBreakdown(t: Trip): string {
+  const bits = [`${fmtEUR(t.price)} billete`];
+  if (t.adjustment) bits.push(`${fmtAdj(t.adjustment)} ajuste`);
+  if (t.ground)
+    bits.push(`+${t.ground.toFixed(0)} € coche${t.groundLabel ? ` (${t.groundLabel})` : ""}`);
+  if (t.holiday) bits.push(`+${t.holiday.toFixed(0)} € ${t.holidayLabel}`);
+  return `${bits.join(" ")} = ${fmtEUR(t.effective)} efectivo`;
+}

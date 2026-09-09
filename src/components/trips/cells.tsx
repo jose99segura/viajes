@@ -92,3 +92,12 @@ export function SortHeader({
     </th>
   );
 }
+
+/**
+ * What the airport costs before the airline charges anything: the drive
+ * there and back, plus parking while the car waits.
+ */
+export function GroundCell({ ground }: { ground: number }) {
+  if (!ground) return <>–</>;
+  return <>+{ground.toFixed(0)} €</>;
+}
