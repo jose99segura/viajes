@@ -8,8 +8,13 @@ Two containers share one database:
 
 | Service | What it is |
 |---|---|
-| `app` | the Next.js dashboard — queries, scoring, pairing, UI |
+| `web` | the Next.js dashboard — queries, scoring, pairing, UI |
 | `fetcher` | the Python `flighttracker` package — the three providers, on a schedule |
+
+`web`, not `app`: Coolify indexes a resource's domain mapping **by service
+name**, and this resource already carries `{"web": ...}` from the Flask
+deployment. Renaming the service would orphan the domain — it would stop
+being applied, without an error.
 
 The split exists because `providers/google.py` depends on `fast-flights`,
 which speaks Google's own protobuf protocol. There is no TypeScript
@@ -49,6 +54,146 @@ GRANT  CONNECT ON DATABASE viajes_prod TO viajes_prod;
 Then verify the negative case, not just the positive one: `viajes_prod`
 connecting to `senadoc_prod` must be refused. Skipping this makes the
 isolation cosmetic.
+
+## First deploy, in order
+
+The resource already exists (`viajes:master`, uuid
+`4oz9wyw6eik48okobplz3xro`) and still points at the Flask app. Until every
+step below is done, each push to `master` leaves a **failed** deployment:
+Coolify looks for `/docker-compose.yaml`, which this rewrite deleted. Those
+failures are harmless — Coolify cannot load the compose file, so it never
+touches the running containers, and the old app keeps serving — but they do
+pile up in the history.
+
+Do the steps in this order. Any other order fails somewhere in the middle:
+the compose declares `DATABASE_URL: ${DATABASE_URL:?...}`, so the container
+refuses to start until the database exists and the variable is set. That is
+deliberate — better a loud failure at boot than an app running against
+nothing.
+
+### 0. Before anything: save the price history
+
+`/data/prices.db` on the Flask volume is the **only** copy. Only
+`postgres-shared` is backed up; this volume is not.
+
+```bash
+ssh ubuntu@51.195.223.171 \
+  "sudo cat /var/lib/docker/volumes/4oz9wyw6eik48okobplz3xro_prices/_data/prices.db" \
+  > prices-prod.db
+ls -l prices-prod.db     # ~300 KB; a zero-byte file means the sudo failed
+```
+
+The volume name derives from the resource UUID. **Reconfigure the existing
+Coolify resource — never delete and recreate it** — or the volume is
+orphaned under a different name and the history goes with it.
+
+Also worth doing now, independently: delete the `www.` domain in **Access**.
+It has no DNS record, and the failed ACME challenges for it have already hit
+a Let's Encrypt 429. Every redeploy retries and burns more quota.
+
+### 1. Database and role
+
+As the superuser, on the server:
+
+```sql
+CREATE ROLE viajes_prod LOGIN PASSWORD '<a long random password>';
+CREATE DATABASE viajes_prod OWNER viajes_prod;
+REVOKE CONNECT ON DATABASE viajes_prod FROM PUBLIC;
+GRANT  CONNECT ON DATABASE viajes_prod TO viajes_prod;
+```
+
+`OWNER viajes_prod` is not cosmetic — see "Table ownership" below.
+
+### 2. Environment variables
+
+In Coolify, on this resource. `env.prod.example` in the repo root is the
+same list, ready to paste.
+
+```
+DATABASE_URL=postgresql://viajes_prod:<password>@yhnvfpxjld6w2dthn71qgcwl:5432/viajes_prod
+GEMINI_API_KEY=<optional>
+GEMINI_MODEL=gemini-3.7-flash
+```
+
+`yhnvfpxjld6w2dthn71qgcwl` is the `postgres-shared` container name, which is
+also its DNS name on the `coolify` network.
+
+Delete the three left over from the Flask deployment: `FETCH_INTERVAL` (the
+fetcher is a scheduled task now, not a loop) and the duplicated
+`SERVICE_FQDN_WEB` / `SERVICE_URL_WEB`.
+
+### 3. Connect to the predefined network
+
+**Advanced → Container → Predefined network → "Connect to predefined
+network".** Currently off. Without it the hostname above does not resolve.
+
+The symptom is misleading and worth recognising: the container starts, the
+logs show a clean Next.js boot with no errors, and only the healthcheck
+fails — silently, because the health route catches the connection error and
+returns 503 without logging it.
+
+### 4. Point Coolify at the new compose file
+
+**Build pipeline → Docker compose location** → `/docker-compose.coolify.yml`.
+
+Do this *after* steps 1–3, not before: it is the step that makes the next
+deployment actually build and run, and it will fail at boot if the database
+and the variables are not there yet.
+
+### 5. Deploy, then migrate
+
+The first deployment starts the containers but the tables do not exist yet,
+so `/api/health` returns 503 until this is done. `postgres-shared` has no
+public port, so migrations go over a tunnel:
+
+```bash
+# 10.0.1.7 is the postgres-shared container IP; re-check after a redeploy:
+#   sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' <container>
+ssh -f -N -i ~/.ssh/coolify_vps -L 55434:10.0.1.7:5432 ubuntu@51.195.223.171
+
+export DATABASE_URL="postgresql://viajes_prod:<password>@127.0.0.1:55434/viajes_prod"
+pnpm db:migrate
+python scripts/import_sqlite.py --sqlite prices-prod.db
+```
+
+The import verifies itself — row counts, price sums, and every distinct
+departure wall clock compared as text — and refuses to run against a
+non-empty database rather than double-import the history.
+
+Then check the tables came out owned by the right role, and close the
+tunnel:
+
+```bash
+psql "$DATABASE_URL" -c "select tablename, tableowner from pg_tables
+  where schemaname='public' and tableowner <> 'viajes_prod';"
+# must return zero rows
+
+ps -ef | grep "55434" | grep -v grep | awk '{print $2}' | xargs kill
+```
+
+Finally: `curl https://<domain>/api/health` → `{"status":"ok"}`.
+
+### 6. Schedule the fetcher
+
+See "Scheduling the daily snapshot" below. Nothing has ever used Coolify's
+scheduled tasks on this instance, so treat it as unproven and check the
+first run's logs.
+
+### Table ownership
+
+`GRANT ... ON ALL TABLES` and `ALTER DEFAULT PRIVILEGES` only cover tables
+that exist when you run them, and **`ALTER TABLE` requires ownership** — no
+GRANT substitutes for it, and `drizzle-kit` exits 1 without printing why.
+Creating the database with `OWNER viajes_prod` and running migrations as
+that role is what avoids it. This cost the sibling project two production
+incidents.
+
+### Coolify does not read the compose healthcheck
+
+Docker runs it and the container does report `healthy`, but Coolify's UI
+says "Running (no healthcheck)" and its proxy does not wait for health
+before routing. To have it gate traffic during a restart, set the
+healthcheck in the Coolify UI as well.
 
 ## Coolify configuration that is not obvious
 
