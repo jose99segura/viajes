@@ -22,6 +22,8 @@ from datetime import date
 
 import requests
 
+from .. import retry
+
 BASE = "https://api.luxair.lu/instantsearch"
 HEADERS = {
     # Public key from the luxair.lu JS bundle. The endpoint answers without it,
@@ -36,7 +38,8 @@ HEADERS = {
 
 def durations(origin: str, destination: str) -> list[int]:
     """Trip lengths (nights) that are actually sellable on the route."""
-    resp = requests.get(
+    resp = retry.get(
+        requests.Session(),
         f"https://api.luxair.lu/luxair/calendar/{origin.upper()}/"
         f"{destination.upper()}/1/durations",
         headers=HEADERS, timeout=30,
@@ -69,7 +72,8 @@ def fetch(
     fares: list[dict] = []
     for stay in nights:
         for month in _month_starts(months_ahead):
-            resp = session.get(
+            resp = retry.get(
+                session,
                 f"{BASE}/by-day",
                 params={
                     "origin": origin.upper(),

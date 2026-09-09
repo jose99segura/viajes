@@ -170,3 +170,45 @@ export const favorites = pgTable(
       .nullsNotDistinct(),
   ],
 );
+
+/**
+ * One row per provider attempt per fetch run.
+ *
+ * This is the observability table. Before it existed, the only signal that
+ * the 09:00 fetch had failed was the dashboard quietly showing yesterday's
+ * prices, and you found out by looking. Now every attempt records what it
+ * tried, how long it took, how many fares it saw and why it stopped.
+ *
+ * Rows are only ever inserted, never updated, for the same reason fares are:
+ * the history is what makes "when did this start failing" answerable.
+ *
+ * `capturedAt` is the run timestamp shared with the fares that run wrote, so
+ * a snapshot and its provenance join on one column.
+ */
+export const fetchRuns = pgTable(
+  "fetch_runs",
+  {
+    id: serial("id").primaryKey(),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+    /** 'ryanair' | 'luxair' | 'google' */
+    provider: text("provider").notNull(),
+    /** "HHN-ALC". Null for steps that are not per route. */
+    route: text("route"),
+    /**
+     * 'ok'      the attempt succeeded and its fares were stored
+     * 'failed'  the provider raised after exhausting its retries
+     * 'suspect' the provider answered, but with so much less than last time
+     *           that the answer was not trusted and nothing was stored
+     */
+    status: text("status").notNull(),
+    faresFound: integer("fares_found").notNull().default(0),
+    faresStored: integer("fares_stored").notNull().default(0),
+    durationMs: integer("duration_ms").notNull().default(0),
+    /** Exception text for 'failed', the comparison for 'suspect'. */
+    error: text("error"),
+  },
+  (t) => [
+    index("idx_runs_captured").on(t.capturedAt),
+    index("idx_runs_provider").on(t.provider, t.route, t.capturedAt),
+  ],
+);
