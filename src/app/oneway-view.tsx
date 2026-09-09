@@ -124,14 +124,14 @@ export async function OneWayView({
     });
   }
 
-  // Tiles describe the whole snapshot, as the old renderTiles() did.
-  const best = flights.length
-    ? flights.reduce((a, b) => (b.effective < a.effective ? b : a))
-    : undefined;
-  const cheapest = flights.length
-    ? flights.reduce((a, b) => (b.price < a.price ? b : a))
-    : undefined;
-
+  // Direction, defaulting to outbound. Without it "Solo ida" listed both
+  // directions at once — the name says "ida" and the rows included ALC→HHN,
+  // which read as returns. Same wording as the calendar's control.
+  //
+  // The parameter is `leg`, not `dir`: `dir` is already the sort direction
+  // on this page, and sharing the name would make sorting flip the
+  // direction filter.
+  const leg = one(params, "leg") ?? "outbound";
   const airport = (one(params, "airport") ?? "").toUpperCase();
   const when = (one(params, "when") ?? "") as When;
   const source = one(params, "source") ?? "";
@@ -140,12 +140,24 @@ export async function OneWayView({
   const direct = one(params, "direct") === "1";
 
   const shown = flights.filter((f) => {
+    if (leg === "outbound" && f.destination !== "ALC") return false;
+    if (leg === "inbound" && f.origin !== "ALC") return false;
     if (airport && f.origin !== airport && f.destination !== airport) return false;
     if (source && f.source !== source) return false;
     if (direct && f.stops) return false;
     if (!Number.isNaN(max) && f.price > max) return false;
     return matchesWhen(f.label, when);
   });
+
+  // Tiles describe what the table is showing, as the trips page's do. The
+  // old renderTiles() read the unfiltered list, which now would announce a
+  // "más barato" that the direction filter has hidden from the rows below.
+  const best = shown.length
+    ? shown.reduce((a, b) => (b.effective < a.effective ? b : a))
+    : undefined;
+  const cheapest = shown.length
+    ? shown.reduce((a, b) => (b.price < a.price ? b : a))
+    : undefined;
 
   const sortKey = one(params, "sort") && SORTS[one(params, "sort")!] ? one(params, "sort")! : "effective";
   const dir = one(params, "dir") === "-1" ? -1 : 1;
@@ -194,9 +206,9 @@ export async function OneWayView({
           </div>
           <div className="tile">
             <div className="k">Tarifas futuras</div>
-            <div className="v">{fmtInt(flights.length)}</div>
+            <div className="v">{fmtInt(shown.length)}</div>
             <div className="d">
-              {new Set(flights.map((f) => f.route)).size} rutas trackeadas
+              {new Set(shown.map((f) => f.route)).size} rutas trackeadas
             </div>
           </div>
         </div>
@@ -206,6 +218,7 @@ export async function OneWayView({
           count={`${fmtInt(shown.length)} vuelos`}
           kindField={toolbar}
           values={{
+            leg,
             airport,
             when,
             maxPrice: maxPrice ?? "",

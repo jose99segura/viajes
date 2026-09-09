@@ -15,6 +15,7 @@ export function FlightsToolbar({
 }: {
   kindField?: React.ReactNode;
   values: {
+    leg: string;
     airport: string;
     when: string;
     maxPrice: string;
@@ -35,6 +36,15 @@ export function FlightsToolbar({
       {values.dir && <input type="hidden" name="dir" value={values.dir} />}
 
       {kindField}
+
+      <label className="field">
+        <span>Dirección</span>
+        <select name="leg" defaultValue={values.leg} onChange={submit}>
+          <option value="outbound">Ida hacia ALC</option>
+          <option value="inbound">Vuelta desde ALC</option>
+          <option value="">Ambas</option>
+        </select>
+      </label>
 
       <label className="field">
         <span>Aeropuerto</span>
