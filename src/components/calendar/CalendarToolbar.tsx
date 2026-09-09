@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useFilterForm } from "@/components/trips/use-filter-form";
 
 /** Airport and direction for the calendar. Auto-submitting GET form. */
 export function CalendarToolbar({
@@ -14,8 +14,7 @@ export function CalendarToolbar({
   month?: string;
   airports: string[];
 }) {
-  const form = useRef<HTMLFormElement>(null);
-  const submit = () => form.current?.requestSubmit();
+  const { form, submit } = useFilterForm("/calendario");
 
   return (
     <form ref={form} method="get" action="/calendario" className="toolbar">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useFilterForm } from "@/components/trips/use-filter-form";
 
 /**
  * The filter bar for "Ida y vuelta". A plain GET form: every filter is a
@@ -45,8 +45,7 @@ export function TripsToolbar({
   /** The shared "Tipo" select that switches to the one-way view. */
   kindField?: React.ReactNode;
 }) {
-  const form = useRef<HTMLFormElement>(null);
-  const submit = () => form.current?.requestSubmit();
+  const { form, submit } = useFilterForm("/");
 
   return (
     <form ref={form} method="get" action="/" className="toolbar" id="toolbar">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useFilterForm } from "@/components/trips/use-filter-form";
 
 /**
  * The filter bar for the one-way view. Same GET-form pattern as
@@ -29,8 +29,7 @@ export function FlightsToolbar({
   airports: string[];
   count: string;
 }) {
-  const form = useRef<HTMLFormElement>(null);
-  const submit = () => form.current?.requestSubmit();
+  const { form, submit } = useFilterForm("/");
 
   return (
     <form ref={form} method="get" action="/" className="toolbar">
