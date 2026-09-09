@@ -60,7 +60,11 @@ ENV HOSTNAME=0.0.0.0
 RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
-# `public` is created by create-next-app but may be empty; copy defensively.
+# `public` is empty today. It is kept in git by public/.gitkeep, and that
+# file is load-bearing: git does not version empty directories, so without
+# it the directory is absent from the build context and this COPY fails with
+# "/app/public: not found" — on the VPS only, since a local build has the
+# untracked directory sitting there. Do not delete it to tidy up.
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static

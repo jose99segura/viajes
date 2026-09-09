@@ -1,0 +1,3 @@
+public/ is empty, and git does not version empty directories: without a
+tracked file here the directory is absent from the build context and the
+Dockerfile's COPY of it fails with "/app/public: not found".
